@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  MERCHANT
+  ADMIN
+}
+
+enum MerchantStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          Role      @default(CUSTOMER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  customerProfile CustomerProfile?
+  merchantProfile MerchantProfile?
+  adminProfile    AdminProfile?
+}
+
+model CustomerProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Active rental contract
+  activeContractId String? @unique
+  contract         RentalContract? @relation(fields: [activeContractId], references: [id])
+
+  transactions Transaction[]
+}
+
+model MerchantProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  businessName    String
+  businessType    String   // e.g., RESTAURANT, HOTEL, ACTIVITY
+  description     String?
+  address         String
+  latitude        Float?
+  longitude       Float?
+  
+  discountRate    Float    @default(5.0) // Minimum 5%
+  status          MerchantStatus @default(PENDING)
+  
+  // Stripe Connect
+  stripeAccountId String?  @unique
+  platformFeeRate Float?   // Custom platform fee (2% - 15%), overrides global setting if set
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions    Transaction[]
+}
+
+model AdminProfile {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RentalContract {
+  id              String   @id @default(uuid())
+  contractNumber  String   @unique
+  agencyName      String   // e.g., Sixt, Hertz, GeoDrive
+  startDate       DateTime
+  endDate         DateTime
+  isValid         Boolean  @default(true)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  customerProfile CustomerProfile?
+}
+
+model Transaction {
+  id                String   @id @default(uuid())
+  customerId        String
+  customer          CustomerProfile @relation(fields: [customerId], references: [id])
+  
+  merchantId        String
+  merchant          MerchantProfile @relation(fields: [merchantId], references: [id])
+  
+  originalAmount    Float
+  discountApplied   Float    // Percentage or absolute amount
+  finalAmount       Float    // Amount paid by customer
+  
+  platformFee       Float    // Amount kept by platform
+  merchantPayout    Float    // Amount sent to merchant
+  
+  status            TransactionStatus @default(PENDING)
+  stripePaymentId   String?  @unique
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model PlatformSettings {
+  id                  String   @id @default(uuid())
+  defaultPlatformFee  Float    @default(10.0) // Default 10%
+  minimumDiscountRate Float    @default(5.0)  // Default 5%
+  
+  updatedAt           DateTime @updatedAt
+}
