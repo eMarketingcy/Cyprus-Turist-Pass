@@ -1,14 +1,17 @@
 import express from "express";
+import cors from "cors";
 import { createServer as createViteServer } from "vite";
 import authRoutes from "./src/server/routes/auth.js";
 import rentalRoutes from "./src/server/routes/rental.js";
 import paymentRoutes from "./src/server/routes/payment.js";
+import merchantRoutes from "./src/server/routes/merchants.js";
+import adminRoutes from "./src/server/routes/admin.js";
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware
+  app.use(cors());
   app.use(express.json());
 
   // API Routes
@@ -16,12 +19,13 @@ async function startServer() {
     res.json({ status: "ok", message: "Cyprus Tourism API is running" });
   });
 
-  // Mount feature routes
   app.use("/api/auth", authRoutes);
   app.use("/api/rental", rentalRoutes);
   app.use("/api/payment", paymentRoutes);
+  app.use("/api/merchants", merchantRoutes);
+  app.use("/api/admin", adminRoutes);
 
-  // Vite middleware for development (Serves the React frontend)
+  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -29,7 +33,6 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    // In production, serve static files from dist
     app.use(express.static("dist"));
   }
 

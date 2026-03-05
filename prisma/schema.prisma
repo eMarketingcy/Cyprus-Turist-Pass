@@ -3,28 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-enum Role {
-  CUSTOMER
-  MERCHANT
-  ADMIN
-}
-
-enum MerchantStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  SUSPENDED
-}
-
-enum TransactionStatus {
-  PENDING
-  COMPLETED
-  FAILED
-  REFUNDED
+  provider = "sqlite"
 }
 
 model User {
@@ -33,22 +12,19 @@ model User {
   passwordHash  String
   firstName     String
   lastName      String
-  role          Role      @default(CUSTOMER)
+  role          String    @default("CUSTOMER") // CUSTOMER, MERCHANT, ADMIN
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  // Relations
   customerProfile CustomerProfile?
   merchantProfile MerchantProfile?
-  adminProfile    AdminProfile?
 }
 
 model CustomerProfile {
   id        String   @id @default(uuid())
   userId    String   @unique
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  // Active rental contract
+
   activeContractId String? @unique
   contract         RentalContract? @relation(fields: [activeContractId], references: [id])
 
@@ -59,20 +35,21 @@ model MerchantProfile {
   id              String   @id @default(uuid())
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   businessName    String
-  businessType    String   // e.g., RESTAURANT, HOTEL, ACTIVITY
+  businessType    String   // RESTAURANT, HOTEL, ACTIVITY, TOUR, SPA
   description     String?
   address         String
+  city            String   @default("Paphos")
   latitude        Float?
   longitude       Float?
-  
-  discountRate    Float    @default(5.0) // Minimum 5%
-  status          MerchantStatus @default(PENDING)
-  
-  // Stripe Connect
+  imageUrl        String?
+
+  discountRate    Float    @default(5.0) // Minimum 5%, max 25%
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED, SUSPENDED
+
   stripeAccountId String?  @unique
-  platformFeeRate Float?   // Custom platform fee (2% - 15%), overrides global setting if set
+  platformFeeRate Float?   // Custom fee 2-15%, overrides global if set
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -80,20 +57,15 @@ model MerchantProfile {
   transactions    Transaction[]
 }
 
-model AdminProfile {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
 model RentalContract {
   id              String   @id @default(uuid())
   contractNumber  String   @unique
-  agencyName      String   // e.g., Sixt, Hertz, GeoDrive
+  agencyName      String
   startDate       DateTime
   endDate         DateTime
+  vehicleClass    String?
   isValid         Boolean  @default(true)
-  
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -104,28 +76,42 @@ model Transaction {
   id                String   @id @default(uuid())
   customerId        String
   customer          CustomerProfile @relation(fields: [customerId], references: [id])
-  
+
   merchantId        String
   merchant          MerchantProfile @relation(fields: [merchantId], references: [id])
-  
+
   originalAmount    Float
-  discountApplied   Float    // Percentage or absolute amount
+  discountRate      Float    // Percentage applied
+  discountAmount    Float    // Absolute discount
   finalAmount       Float    // Amount paid by customer
-  
+
+  platformFeeRate   Float    // Fee percentage
   platformFee       Float    // Amount kept by platform
   merchantPayout    Float    // Amount sent to merchant
-  
-  status            TransactionStatus @default(PENDING)
+
+  status            String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
   stripePaymentId   String?  @unique
-  
+  qrToken           String?  @unique // The QR token used for this transaction
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
 
+model QrToken {
+  id            String   @id @default(uuid())
+  token         String   @unique
+  customerId    String
+  merchantId    String
+  discountRate  Float
+  expiresAt     DateTime
+  used          Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
 model PlatformSettings {
   id                  String   @id @default(uuid())
-  defaultPlatformFee  Float    @default(10.0) // Default 10%
-  minimumDiscountRate Float    @default(5.0)  // Default 5%
-  
+  defaultPlatformFee  Float    @default(10.0)
+  minimumDiscountRate Float    @default(5.0)
+  maximumDiscountRate Float    @default(25.0)
   updatedAt           DateTime @updatedAt
 }
