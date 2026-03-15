@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: Cyprus Tourist Pass
- * Plugin URI: https://cyprusturistpass.com
+ * Plugin URI: https://emarketing.cy
  * Description: A tourist discount pass platform for Cyprus. Validates rental car contracts and provides exclusive merchant discounts via QR codes.
  * Version: 1.0.0
- * Author: Cyprus Tourist Pass Team
- * Author URI: https://cyprusturistpass.com
+ * Author: eMarketing Cyprus by Saltpixek Team
+ * Author URI: https://eMarketing.cy
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: cyprus-tourist-pass
