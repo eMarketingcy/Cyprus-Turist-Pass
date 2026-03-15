@@ -3,7 +3,7 @@
  * Plugin Name: Cyprus Tourist Pass
  * Plugin URI: https://emarketing.cy
  * Description: A tourist discount pass platform for Cyprus. Validates rental car contracts and provides exclusive merchant discounts via QR codes.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: eMarketing Cyprus by Saltpixek Team
  * Author URI: https://eMarketing.cy
  * License: GPL v2 or later
@@ -17,15 +17,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'CTP_VERSION', '1.0.0' );
+define( 'CTP_VERSION', '1.0.1' );
 define( 'CTP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CTP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'CTP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
 // JWT Secret - override in wp-config.php with: define('CTP_JWT_SECRET', 'your-secret-key');
-if ( ! defined( 'CTP_JWT_SECRET' ) ) {
-    define( 'CTP_JWT_SECRET', 'ctp-' . wp_salt( 'auth' ) );
-}
+// Note: Deferred to 'plugins_loaded' because wp_salt() is not available during plugin file loading.
+add_action( 'plugins_loaded', function () {
+    if ( ! defined( 'CTP_JWT_SECRET' ) ) {
+        define( 'CTP_JWT_SECRET', 'ctp-' . wp_salt( 'auth' ) );
+    }
+}, 1 );
 
 /**
  * Main plugin class
@@ -55,9 +58,6 @@ final class Cyprus_Tourist_Pass {
     }
 
     private function init_hooks() {
-        register_activation_hook( __FILE__, array( $this, 'activate' ) );
-        register_deactivation_hook( __FILE__, array( $this, 'deactivate' ) );
-
         add_action( 'init', array( $this, 'init' ) );
         add_action( 'rest_api_init', array( 'CTP_Rest_API', 'register_routes' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_frontend_assets' ) );
@@ -72,13 +72,14 @@ final class Cyprus_Tourist_Pass {
         load_plugin_textdomain( 'cyprus-tourist-pass', false, dirname( CTP_PLUGIN_BASENAME ) . '/languages' );
     }
 
-    public function activate() {
+    public static function activate() {
+        require_once CTP_PLUGIN_DIR . 'includes/class-ctp-database.php';
         CTP_Database::create_tables();
         CTP_Database::seed_data();
         flush_rewrite_rules();
     }
 
-    public function deactivate() {
+    public static function deactivate() {
         flush_rewrite_rules();
     }
 
@@ -118,8 +119,12 @@ final class Cyprus_Tourist_Pass {
     }
 }
 
-// Initialize plugin
+// Activation/deactivation hooks must be registered during plugin file load
+register_activation_hook( __FILE__, array( 'Cyprus_Tourist_Pass', 'activate' ) );
+register_deactivation_hook( __FILE__, array( 'Cyprus_Tourist_Pass', 'deactivate' ) );
+
+// Initialize plugin after plugins_loaded so CTP_JWT_SECRET is defined
 function cyprus_tourist_pass() {
     return Cyprus_Tourist_Pass::instance();
 }
-cyprus_tourist_pass();
+add_action( 'plugins_loaded', 'cyprus_tourist_pass', 5 );
