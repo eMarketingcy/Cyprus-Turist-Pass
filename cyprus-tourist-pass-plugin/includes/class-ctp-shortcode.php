@@ -15,8 +15,11 @@ class CTP_Shortcode {
      */
     public static function render_main_app( $atts ) {
         $atts = shortcode_atts( array(
-            'view' => 'full', // full, customer, merchant, admin
+            'view' => 'full',
         ), $atts, 'cyprus_tourist_pass' );
+
+        // Enqueue assets when shortcode actually renders
+        Cyprus_Tourist_Pass::enqueue_frontend_assets();
 
         ob_start();
         ?>
@@ -34,6 +37,8 @@ class CTP_Shortcode {
      * Merchant POS shortcode: [ctp_merchant_pos]
      */
     public static function render_merchant_pos( $atts ) {
+        Cyprus_Tourist_Pass::enqueue_frontend_assets();
+
         ob_start();
         ?>
         <div id="ctp-app" class="ctp-app" data-view="merchant">
@@ -50,6 +55,8 @@ class CTP_Shortcode {
      * Admin dashboard shortcode: [ctp_admin_dashboard]
      */
     public static function render_admin_dashboard( $atts ) {
+        Cyprus_Tourist_Pass::enqueue_frontend_assets();
+
         ob_start();
         ?>
         <div id="ctp-app" class="ctp-app" data-view="admin">

@@ -3,7 +3,7 @@
  * Plugin Name: Cyprus Tourist Pass
  * Plugin URI: https://emarketing.cy
  * Description: A tourist discount pass platform for Cyprus. Validates rental car contracts and provides exclusive merchant discounts via QR codes.
- * Version: 1.0.1
+ * Version: 1.2.0
  * Author: eMarketing Cyprus by Saltpixek Team
  * Author URI: https://eMarketing.cy
  * License: GPL v2 or later
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'CTP_VERSION', '1.0.1' );
+define( 'CTP_VERSION', '1.2.0' );
 define( 'CTP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CTP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'CTP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -60,7 +60,7 @@ final class Cyprus_Tourist_Pass {
     private function init_hooks() {
         add_action( 'init', array( $this, 'init' ) );
         add_action( 'rest_api_init', array( 'CTP_Rest_API', 'register_routes' ) );
-        add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_frontend_assets' ) );
+        add_action( 'wp_enqueue_scripts', array( $this, 'register_frontend_assets' ) );
         add_action( 'admin_menu', array( 'CTP_Admin', 'add_admin_menu' ) );
         add_action( 'admin_enqueue_scripts', array( 'CTP_Admin', 'enqueue_admin_assets' ) );
 
@@ -83,39 +83,40 @@ final class Cyprus_Tourist_Pass {
         flush_rewrite_rules();
     }
 
-    public function enqueue_frontend_assets() {
-        global $post;
-        if ( ! is_a( $post, 'WP_Post' ) ) {
-            return;
-        }
+    /**
+     * Register frontend assets early so they can be enqueued when shortcodes render.
+     * Assets are only enqueued when a shortcode actually executes (flag-based).
+     */
+    public function register_frontend_assets() {
+        wp_register_style(
+            'ctp-frontend',
+            CTP_PLUGIN_URL . 'assets/css/frontend.css',
+            array(),
+            CTP_VERSION
+        );
 
-        // Only load assets if shortcode is present
-        if ( has_shortcode( $post->post_content, 'cyprus_tourist_pass' ) ||
-             has_shortcode( $post->post_content, 'ctp_merchant_pos' ) ||
-             has_shortcode( $post->post_content, 'ctp_admin_dashboard' ) ) {
+        wp_register_script(
+            'ctp-frontend',
+            CTP_PLUGIN_URL . 'assets/js/frontend.js',
+            array(),
+            CTP_VERSION,
+            true
+        );
 
-            wp_enqueue_style(
-                'ctp-frontend',
-                CTP_PLUGIN_URL . 'assets/css/frontend.css',
-                array(),
-                CTP_VERSION
-            );
+        wp_localize_script( 'ctp-frontend', 'ctpData', array(
+            'restUrl'   => esc_url_raw( rest_url( 'ctp/v1/' ) ),
+            'nonce'     => wp_create_nonce( 'wp_rest' ),
+            'pluginUrl' => CTP_PLUGIN_URL,
+            'siteUrl'   => site_url(),
+        ) );
+    }
 
-            wp_enqueue_script(
-                'ctp-frontend',
-                CTP_PLUGIN_URL . 'assets/js/frontend.js',
-                array(),
-                CTP_VERSION,
-                true
-            );
-
-            wp_localize_script( 'ctp-frontend', 'ctpData', array(
-                'restUrl'  => esc_url_raw( rest_url( 'ctp/v1/' ) ),
-                'nonce'    => wp_create_nonce( 'wp_rest' ),
-                'pluginUrl' => CTP_PLUGIN_URL,
-                'siteUrl'  => site_url(),
-            ) );
-        }
+    /**
+     * Called by shortcodes to ensure assets are loaded.
+     */
+    public static function enqueue_frontend_assets() {
+        wp_enqueue_style( 'ctp-frontend' );
+        wp_enqueue_script( 'ctp-frontend' );
     }
 }
 
