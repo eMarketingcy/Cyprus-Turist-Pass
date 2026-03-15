@@ -1,0 +1,29 @@
+/* WP Admin Styles for Cyprus Tourist Pass */
+.ctp-admin-cards {
+    display: flex;
+    gap: 16px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+}
+
+.ctp-admin-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 20px 24px;
+    min-width: 160px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.ctp-admin-card h3 {
+    font-size: 28px;
+    font-weight: 700;
+    color: #4f46e5;
+    margin: 0 0 4px 0;
+}
+
+.ctp-admin-card p {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0;
+}
