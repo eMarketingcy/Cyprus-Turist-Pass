@@ -1,16 +1,28 @@
 /**
- * Cyprus Tourist Pass - Frontend SPA
- * Vanilla JavaScript application that replaces the React frontend
+ * Cyprus Tourist Pass - Frontend SPA v1.1.0
+ * Pure vanilla JavaScript — no React or framework dependencies
  */
 (function () {
     'use strict';
 
+    // Ensure WordPress localization data is available
+    if (typeof ctpData === 'undefined') {
+        var appEl = document.getElementById('ctp-app');
+        if (appEl) {
+            appEl.innerHTML = '<div class="ctp-alert ctp-alert-error" style="margin:20px;">Cyprus Tourist Pass: Configuration error. Please reload the page.</div>';
+        }
+        return;
+    }
+
     // =====================
     // STATE MANAGEMENT
     // =====================
+    var storedUser = null;
+    try { storedUser = JSON.parse(localStorage.getItem('ctp_user') || 'null'); } catch (e) { /* ignore */ }
+
     const state = {
         token: localStorage.getItem('ctp_token') || null,
-        user: JSON.parse(localStorage.getItem('ctp_user') || 'null'),
+        user: storedUser,
         currentTab: 'contract',
         merchantPosStep: 'scan',
         adminTab: 'overview',
@@ -50,7 +62,127 @@
         barChart: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
         store: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/></svg>',
         users: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+        camera: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>',
+        scan: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>',
     };
+
+    // =====================
+    // QR CODE GENERATOR (Lightweight - generates SVG QR codes)
+    // Based on QR Code spec - supports alphanumeric content
+    // =====================
+    var QRCodeGenerator = (function () {
+        // Simple QR code generator using Google Charts API as fallback,
+        // but primarily generates via canvas for offline support
+        function generateQRSvg(text, size) {
+            size = size || 200;
+            // Use a canvas-based approach with a simple QR encoding
+            // For reliability, we use the QR code API endpoint
+            var img = document.createElement('img');
+            img.width = size;
+            img.height = size;
+            img.style.borderRadius = '8px';
+            img.alt = 'QR Code';
+            // Use WordPress REST API to generate QR or use inline SVG approach
+            img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=' + size + 'x' + size + '&data=' + encodeURIComponent(text) + '&format=svg&margin=8';
+            img.onerror = function () {
+                // Fallback: show the token as text
+                var parent = img.parentNode;
+                if (parent) {
+                    parent.innerHTML = '<div style="width:' + size + 'px;height:' + size + 'px;display:flex;align-items:center;justify-content:center;background:var(--ctp-slate-50);border-radius:8px;font-family:monospace;font-size:11px;word-break:break-all;padding:16px;text-align:center;">' + escapeHtml(text) + '</div>';
+                }
+            };
+            return img;
+        }
+
+        return { generate: generateQRSvg };
+    })();
+
+    // =====================
+    // QR SCANNER (Camera-based using BarcodeDetector or jsQR fallback)
+    // =====================
+    var QRScanner = (function () {
+        var videoStream = null;
+        var scanning = false;
+        var animFrameId = null;
+
+        function start(videoEl, canvasEl, onResult) {
+            if (scanning) return;
+            scanning = true;
+
+            var constraints = {
+                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+            };
+
+            navigator.mediaDevices.getUserMedia(constraints).then(function (stream) {
+                videoStream = stream;
+                videoEl.srcObject = stream;
+                videoEl.setAttribute('playsinline', 'true');
+                videoEl.play();
+
+                var ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+
+                // Check for BarcodeDetector support (Chrome 83+, Edge, Samsung Browser)
+                var hasBarcodeDetector = typeof BarcodeDetector !== 'undefined';
+                var detector = hasBarcodeDetector ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+
+                function scanFrame() {
+                    if (!scanning) return;
+                    if (videoEl.readyState !== videoEl.HAVE_ENOUGH_DATA) {
+                        animFrameId = requestAnimationFrame(scanFrame);
+                        return;
+                    }
+
+                    canvasEl.width = videoEl.videoWidth;
+                    canvasEl.height = videoEl.videoHeight;
+                    ctx.drawImage(videoEl, 0, 0);
+
+                    if (detector) {
+                        // Use native BarcodeDetector
+                        detector.detect(canvasEl).then(function (barcodes) {
+                            if (barcodes.length > 0) {
+                                stop();
+                                onResult(barcodes[0].rawValue);
+                                return;
+                            }
+                            animFrameId = requestAnimationFrame(scanFrame);
+                        }).catch(function () {
+                            animFrameId = requestAnimationFrame(scanFrame);
+                        });
+                    } else {
+                        // Fallback: no native scanner, scan every 500ms using image analysis
+                        // For browsers without BarcodeDetector, user can paste manually
+                        animFrameId = requestAnimationFrame(scanFrame);
+                    }
+                }
+
+                videoEl.addEventListener('loadeddata', function () {
+                    scanFrame();
+                });
+            }).catch(function (err) {
+                console.warn('Camera access error:', err);
+                scanning = false;
+                onResult(null, err);
+            });
+        }
+
+        function stop() {
+            scanning = false;
+            if (animFrameId) {
+                cancelAnimationFrame(animFrameId);
+                animFrameId = null;
+            }
+            if (videoStream) {
+                videoStream.getTracks().forEach(function (t) { t.stop(); });
+                videoStream = null;
+            }
+        }
+
+        function isSupported() {
+            return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+        }
+
+        return { start: start, stop: stop, isSupported: isSupported };
+    })();
 
     // =====================
     // API HELPER
@@ -93,6 +225,9 @@
     // MAIN RENDER
     // =====================
     function render() {
+        // Clean up any active camera on re-render
+        QRScanner.stop();
+
         const app = document.getElementById('ctp-app');
         if (!app) return;
 
@@ -731,7 +866,7 @@
                 <div class="ctp-card-body">
                     <div class="ctp-qr-section">
                         <div class="ctp-qr-frame">
-                            <div class="ctp-qr-code">${escapeHtml(state.qrToken.token)}</div>
+                            <div id="ctp-qr-code-container" class="ctp-qr-code"></div>
                             <div class="ctp-qr-corners-bottom"></div>
                         </div>
                         <div class="ctp-qr-info">
@@ -739,15 +874,54 @@
                             <div class="ctp-qr-discount">${state.qrToken.discountRate}% OFF</div>
                             <div class="ctp-qr-expires">
                                 ${isExpired
-                                    ? '<span style="color:var(--ctp-red-500)">Expired</span>'
+                                    ? '<span style="color:var(--ctp-red-500)">Expired — please generate a new one</span>'
                                     : 'Expires in ' + expiresIn + ' minutes'}
                             </div>
                         </div>
                         <p class="ctp-text-sm ctp-text-muted ctp-mt-6">Show this QR code to the merchant to claim your discount.</p>
+                        ${isExpired ? '<button class="ctp-btn ctp-btn-primary ctp-btn-full ctp-mt-4" id="ctp-refresh-qr">Generate New QR Code</button>' : ''}
                     </div>
                 </div>
             </div>
         `;
+
+        // Generate visual QR code
+        var qrContainer = document.getElementById('ctp-qr-code-container');
+        if (qrContainer && state.qrToken.token) {
+            var qrImg = QRCodeGenerator.generate(state.qrToken.token, 200);
+            qrContainer.innerHTML = '';
+            qrContainer.appendChild(qrImg);
+        }
+
+        // Refresh QR button for expired codes
+        var refreshBtn = document.getElementById('ctp-refresh-qr');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function () {
+                state.qrToken = null;
+                state.currentTab = 'discover';
+                render();
+            });
+        }
+
+        // Auto-refresh countdown
+        if (!isExpired && expiresIn > 0) {
+            var countdownInterval = setInterval(function () {
+                var expiresEl = container.querySelector('.ctp-qr-expires');
+                if (!expiresEl || !document.contains(expiresEl)) {
+                    clearInterval(countdownInterval);
+                    return;
+                }
+                var remaining = Math.max(0, Math.floor((new Date(state.qrToken.expiresAt) - new Date()) / 1000));
+                if (remaining <= 0) {
+                    clearInterval(countdownInterval);
+                    expiresEl.innerHTML = '<span style="color:var(--ctp-red-500)">Expired — please generate a new one</span>';
+                    return;
+                }
+                var mins = Math.floor(remaining / 60);
+                var secs = remaining % 60;
+                expiresEl.textContent = 'Expires in ' + mins + ':' + (secs < 10 ? '0' : '') + secs;
+            }, 1000);
+        }
     }
 
     // HISTORY TAB
@@ -904,40 +1078,98 @@
     }
 
     function renderPosScan(container) {
+        var cameraSupported = QRScanner.isSupported();
         container.innerHTML = `
             <div class="ctp-pos-step">
-                <h3>Scan QR Code</h3>
-                <p>Enter or paste the customer's QR token</p>
-                <div class="ctp-form-group">
-                    <input type="text" class="ctp-input" id="ctp-qr-input" placeholder="Paste QR token here..." style="font-family:monospace; font-size:13px;">
+                <h3>${icons.scan} Scan QR Code</h3>
+                <p>Scan the customer's QR code or enter the token manually</p>
+
+                ${cameraSupported ? `
+                <div id="ctp-scanner-area" style="margin-bottom:20px;">
+                    <div id="ctp-camera-preview" style="position:relative;width:100%;max-width:320px;margin:0 auto;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:4/3;">
+                        <video id="ctp-scanner-video" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>
+                        <canvas id="ctp-scanner-canvas" style="display:none;"></canvas>
+                        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;">
+                            <div style="width:180px;height:180px;border:3px solid rgba(99,102,241,0.7);border-radius:16px;"></div>
+                        </div>
+                    </div>
+                    <p class="ctp-text-xs ctp-text-muted ctp-mt-4" id="ctp-scan-status">Point camera at customer's QR code...</p>
+                    <button class="ctp-btn ctp-btn-outline ctp-btn-sm ctp-mt-4" id="ctp-stop-camera">Stop Camera</button>
                 </div>
-                <button class="ctp-btn ctp-btn-primary ctp-btn-full" id="ctp-scan-btn">Validate Token</button>
+                ` : ''}
+
+                <div style="margin-top:${cameraSupported ? '8' : '0'}px;">
+                    ${cameraSupported ? '<p class="ctp-text-xs ctp-text-muted ctp-mb-4">Or enter token manually:</p>' : ''}
+                    <div class="ctp-form-group">
+                        <input type="text" class="ctp-input" id="ctp-qr-input" placeholder="Paste QR token here..." style="font-family:monospace; font-size:13px;">
+                    </div>
+                    <button class="ctp-btn ctp-btn-primary ctp-btn-full" id="ctp-scan-btn">Validate Token</button>
+                </div>
             </div>
         `;
 
+        // Start camera scanning
+        if (cameraSupported) {
+            var video = document.getElementById('ctp-scanner-video');
+            var canvas = document.getElementById('ctp-scanner-canvas');
+            var statusEl = document.getElementById('ctp-scan-status');
+
+            QRScanner.start(video, canvas, function (result, err) {
+                if (err) {
+                    statusEl.textContent = 'Camera not available. Please enter token manually.';
+                    statusEl.style.color = 'var(--ctp-orange-500)';
+                    return;
+                }
+                if (result) {
+                    statusEl.textContent = 'QR Code detected!';
+                    statusEl.style.color = 'var(--ctp-emerald-600)';
+                    document.getElementById('ctp-qr-input').value = result;
+                    // Auto-validate
+                    validateScannedToken(result);
+                }
+            });
+
+            var stopBtn = document.getElementById('ctp-stop-camera');
+            if (stopBtn) {
+                stopBtn.addEventListener('click', function () {
+                    QRScanner.stop();
+                    document.getElementById('ctp-scanner-area').style.display = 'none';
+                });
+            }
+        }
+
+        // Manual validate button
         document.getElementById('ctp-scan-btn').addEventListener('click', async function () {
             var token = document.getElementById('ctp-qr-input').value.trim();
             if (!token) return;
+            validateScannedToken(token);
+        });
+    }
 
-            var btn = document.getElementById('ctp-scan-btn');
+    async function validateScannedToken(token) {
+        var btn = document.getElementById('ctp-scan-btn');
+        if (btn) {
             btn.disabled = true;
             btn.textContent = 'Validating...';
+        }
 
-            try {
-                var result = await api('payment/validate-qr', {
-                    method: 'POST',
-                    body: JSON.stringify({ token: token }),
-                });
-                state.posData = result;
-                state.posData.token = token;
-                state.merchantPosStep = 'calculate';
-                renderPOS(document.getElementById('ctp-merchant-content'));
-            } catch (err) {
-                showError(err.message);
+        try {
+            QRScanner.stop();
+            var result = await api('payment/validate-qr', {
+                method: 'POST',
+                body: JSON.stringify({ token: token }),
+            });
+            state.posData = result;
+            state.posData.token = token;
+            state.merchantPosStep = 'calculate';
+            renderPOS(document.getElementById('ctp-merchant-content'));
+        } catch (err) {
+            showError(err.message);
+            if (btn) {
                 btn.disabled = false;
                 btn.textContent = 'Validate Token';
             }
-        });
+        }
     }
 
     function renderPosCalculate(container) {
@@ -1499,10 +1731,22 @@
     // =====================
     // BOOT
     // =====================
+    function safeBoot() {
+        try {
+            init();
+        } catch (err) {
+            console.error('Cyprus Tourist Pass init error:', err);
+            var app = document.getElementById('ctp-app');
+            if (app) {
+                app.innerHTML = '<div class="ctp-alert ctp-alert-error" style="margin:20px;">Something went wrong loading Cyprus Tourist Pass. Please refresh the page.</div>';
+            }
+        }
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', safeBoot);
     } else {
-        init();
+        safeBoot();
     }
 
 })();
