@@ -1,5 +1,5 @@
 /**
- * Cyprus Tourist Pass - Frontend SPA v1.1.0
+ * Cyprus Tourist Pass - Frontend SPA v2.0.0
  * Pure vanilla JavaScript — no React or framework dependencies
  */
 (function () {
@@ -20,6 +20,9 @@
     var storedUser = null;
     try { storedUser = JSON.parse(localStorage.getItem('ctp_user') || 'null'); } catch (e) { /* ignore */ }
 
+    var storedAgency = null;
+    try { storedAgency = JSON.parse(localStorage.getItem('ctp_agency') || 'null'); } catch (e) { /* ignore */ }
+
     const state = {
         token: localStorage.getItem('ctp_token') || null,
         user: storedUser,
@@ -29,14 +32,18 @@
         merchantView: 'pos',
         // Data
         contract: null,
+        agency: storedAgency,        // Current agency branding (Hertz/Sixt/etc)
+        agencies: [],                 // All available agencies
         merchants: [],
         qrToken: null,
+        qrMerchantId: null,           // Track which merchant the QR was for
         transactions: [],
         posData: {},
         adminStats: {},
         adminMerchants: [],
         adminCustomers: [],
         adminSettings: {},
+        adminAgencies: [],
         // Filters
         searchQuery: '',
         filterCity: '',
@@ -483,12 +490,45 @@
         state.token = null;
         state.user = null;
         state.contract = null;
+        state.agency = null;
         state.qrToken = null;
+        state.qrMerchantId = null;
         state.merchants = [];
         state.transactions = [];
         localStorage.removeItem('ctp_token');
         localStorage.removeItem('ctp_user');
+        localStorage.removeItem('ctp_agency');
+        removeAgencyBranding();
         render();
+    }
+
+    // =====================
+    // AGENCY BRANDING
+    // =====================
+    function applyAgencyBranding(agency) {
+        if (!agency) {
+            removeAgencyBranding();
+            return;
+        }
+        state.agency = agency;
+        localStorage.setItem('ctp_agency', JSON.stringify(agency));
+
+        var app = document.getElementById('ctp-app');
+        if (!app) return;
+
+        app.setAttribute('data-agency', agency.slug || '');
+        app.style.setProperty('--ctp-agency-primary', agency.primaryColor || '#4f46e5');
+        app.style.setProperty('--ctp-agency-secondary', agency.secondaryColor || '#ffffff');
+        app.style.setProperty('--ctp-agency-accent', agency.accentColor || agency.primaryColor || '#4f46e5');
+    }
+
+    function removeAgencyBranding() {
+        var app = document.getElementById('ctp-app');
+        if (!app) return;
+        app.removeAttribute('data-agency');
+        app.style.removeProperty('--ctp-agency-primary');
+        app.style.removeProperty('--ctp-agency-secondary');
+        app.style.removeProperty('--ctp-agency-accent');
     }
 
     function showError(msg) {
@@ -530,11 +570,26 @@
     // CUSTOMER APP
     // =====================
     function renderCustomerApp(container) {
+        // Apply agency branding if available
+        if (state.agency) {
+            applyAgencyBranding(state.agency);
+        }
+
+        var agencyLogoHtml = '';
+        var headerClass = 'ctp-header';
+        if (state.agency && state.agency.logoUrl) {
+            agencyLogoHtml = '<img src="' + escapeHtml(state.agency.logoUrl) + '" alt="' + escapeHtml(state.agency.name) + '" class="ctp-header-agency-logo">';
+            headerClass += ' ctp-header-branded';
+        }
+
         container.innerHTML = `
-            <div class="ctp-header">
+            <div class="${headerClass}">
                 <div class="ctp-header-inner">
                     <div class="ctp-header-brand">
-                        <h2>Cyprus Tourist Pass</h2>
+                        ${agencyLogoHtml}
+                        <div>
+                            <h2>${state.agency ? escapeHtml(state.agency.name) + ' <span style="font-weight:400;font-size:13px;opacity:0.8;">Tourist Pass</span>' : 'Cyprus Tourist Pass'}</h2>
+                        </div>
                         <span class="ctp-role-badge ctp-role-badge-customer">Tourist</span>
                     </div>
                     <div class="ctp-header-user">
@@ -622,9 +677,21 @@
         try {
             var result = await api('rental/status');
             state.contract = result.contract;
+            if (result.agency) {
+                applyAgencyBranding(result.agency);
+            }
             renderContractStatusUI();
         } catch (err) {
             renderContractStatusUI();
+        }
+    }
+
+    async function loadAgencies() {
+        if (state.agencies.length > 0) return;
+        try {
+            state.agencies = await api('rental/agencies');
+        } catch (e) {
+            state.agencies = [];
         }
     }
 
@@ -633,19 +700,24 @@
         var formEl = document.getElementById('ctp-contract-form-area');
 
         if (state.contract && state.contract.isValid) {
+            var agencyLogo = state.agency && state.agency.logoUrl
+                ? '<img src="' + escapeHtml(state.agency.logoUrl) + '" alt="' + escapeHtml(state.contract.agencyName) + '" style="height:32px;max-width:120px;object-fit:contain;margin-bottom:8px;">'
+                : '';
+
             statusEl.innerHTML = `
-                <div class="ctp-contract-status">
-                    <h4>${icons.check} Active Contract</h4>
+                <div class="ctp-contract-status ctp-agency-branded">
+                    ${agencyLogo}
+                    <h4>${icons.check} Active Contract — ${escapeHtml(state.contract.agencyName)}</h4>
                     <div class="ctp-contract-detail">
                         <span class="label">Contract</span>
-                        <span class="value">${escapeHtml(state.contract.contractNumber)}</span>
+                        <span class="value" style="font-family:monospace;letter-spacing:1px;">${escapeHtml(state.contract.contractNumber)}</span>
                     </div>
                     <div class="ctp-contract-detail">
                         <span class="label">Agency</span>
                         <span class="value">${escapeHtml(state.contract.agencyName)}</span>
                     </div>
                     <div class="ctp-contract-detail">
-                        <span class="label">Vehicle</span>
+                        <span class="label">Vehicle Class</span>
                         <span class="value">${escapeHtml(state.contract.vehicleClass)}</span>
                     </div>
                     <div class="ctp-contract-detail">
@@ -657,49 +729,108 @@
             formEl.innerHTML = '<div class="ctp-alert ctp-alert-info">Your contract is validated. Head to the Discover tab to find merchants and claim discounts!</div>';
         } else {
             statusEl.innerHTML = '';
-            formEl.innerHTML = `
-                <form id="ctp-validate-form">
-                    <div class="ctp-form-group">
-                        <label>Rental Agency</label>
-                        <select class="ctp-select" id="ctp-contract-agency">
-                            <option value="Sixt">Sixt</option>
-                            <option value="Hertz">Hertz</option>
-                            <option value="GeoDrive">GeoDrive</option>
-                        </select>
-                    </div>
-                    <div class="ctp-form-group">
-                        <label>Contract Number</label>
-                        <input type="text" class="ctp-input" id="ctp-contract-number" placeholder="e.g. TEST-12345" required>
-                        <p class="ctp-text-xs ctp-text-muted ctp-mt-4">For demo, use a contract starting with "TEST"</p>
-                    </div>
-                    <button type="submit" class="ctp-btn ctp-btn-primary ctp-btn-full" id="ctp-validate-btn">
-                        Validate Contract
-                    </button>
-                </form>
-            `;
+            renderContractForm(formEl);
+        }
+    }
 
-            document.getElementById('ctp-validate-form').addEventListener('submit', async function (e) {
-                e.preventDefault();
-                var btn = document.getElementById('ctp-validate-btn');
-                btn.disabled = true;
-                btn.textContent = 'Validating...';
+    async function renderContractForm(formEl) {
+        await loadAgencies();
+
+        var agencyOptions = state.agencies.map(function(a) {
+            return '<option value="' + escapeHtml(a.name) + '">' + escapeHtml(a.name) + ' (' + escapeHtml(a.contractPrefix) + '-...)</option>';
+        }).join('');
+
+        var demoCards = state.agencies.filter(function(a) { return a.isDemo && a.demoContract; }).map(function(a) {
+            var bgStyle = 'background:' + a.primaryColor + ';color:' + a.secondaryColor;
+            return `
+                <div class="ctp-demo-contract-card" style="border:2px solid ${a.primaryColor};border-radius:var(--ctp-radius-lg);padding:16px;cursor:pointer;transition:all var(--ctp-transition);flex:1;min-width:140px;" data-demo-contract="${escapeHtml(a.demoContract)}" data-demo-agency="${escapeHtml(a.name)}">
+                    ${a.logoIconUrl ? '<img src="' + escapeHtml(a.logoIconUrl) + '" alt="' + escapeHtml(a.name) + '" style="height:28px;max-width:100px;object-fit:contain;margin-bottom:8px;">' : '<strong style="color:' + a.primaryColor + '">' + escapeHtml(a.name) + '</strong>'}
+                    <div style="font-size:12px;color:var(--ctp-slate-500);margin-top:4px;font-family:monospace;">${escapeHtml(a.demoContract)}</div>
+                    <div style="margin-top:8px;"><span style="${bgStyle};padding:4px 12px;border-radius:var(--ctp-radius-full);font-size:11px;font-weight:700;">Try Demo</span></div>
+                </div>
+            `;
+        }).join('');
+
+        formEl.innerHTML = `
+            ${demoCards ? `
+            <div style="margin-bottom:24px;">
+                <p class="ctp-text-xs ctp-text-muted" style="text-align:center;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:12px;">Quick Demo — Try a sample contract</p>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    ${demoCards}
+                </div>
+            </div>
+            <div style="text-align:center;margin-bottom:20px;position:relative;">
+                <span style="background:var(--ctp-white);padding:0 12px;font-size:12px;color:var(--ctp-slate-400);position:relative;z-index:1;">or enter your contract</span>
+                <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:var(--ctp-slate-200);"></div>
+            </div>
+            ` : ''}
+            <form id="ctp-validate-form">
+                <div class="ctp-form-group">
+                    <label>Contract Number</label>
+                    <input type="text" class="ctp-input" id="ctp-contract-number" placeholder="e.g. HZ-12345 or SX-12345" required style="text-transform:uppercase;font-family:monospace;letter-spacing:1px;">
+                    <p class="ctp-text-xs ctp-text-muted ctp-mt-4">Enter your contract number. The prefix determines the agency (HZ = Hertz, SX = Sixt).</p>
+                </div>
+                <button type="submit" class="ctp-btn ctp-btn-primary ctp-btn-full" id="ctp-validate-btn">
+                    Validate Contract
+                </button>
+            </form>
+        `;
+
+        // Demo contract quick-fill buttons
+        formEl.querySelectorAll('[data-demo-contract]').forEach(function(card) {
+            card.addEventListener('click', async function() {
+                var contractNum = card.dataset.demoContract;
+                var agencyName = card.dataset.demoAgency;
+                card.style.opacity = '0.6';
+                card.querySelector('span').textContent = 'Validating...';
+                clearError();
 
                 try {
-                    await api('rental/validate', {
+                    var result = await api('rental/validate', {
                         method: 'POST',
                         body: JSON.stringify({
-                            contractNumber: document.getElementById('ctp-contract-number').value,
-                            agencyName: document.getElementById('ctp-contract-agency').value,
+                            contractNumber: contractNum,
+                            agencyName: agencyName,
                         }),
                     });
+                    if (result.agency) {
+                        applyAgencyBranding(result.agency);
+                    }
                     loadContractStatus();
                 } catch (err) {
                     showError(err.message);
-                    btn.disabled = false;
-                    btn.textContent = 'Validate Contract';
+                    card.style.opacity = '1';
+                    card.querySelector('span').textContent = 'Try Demo';
                 }
             });
-        }
+        });
+
+        // Manual form
+        document.getElementById('ctp-validate-form').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            var btn = document.getElementById('ctp-validate-btn');
+            btn.disabled = true;
+            btn.textContent = 'Validating...';
+            clearError();
+
+            try {
+                var contractNumber = document.getElementById('ctp-contract-number').value.toUpperCase().trim();
+                var result = await api('rental/validate', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        contractNumber: contractNumber,
+                    }),
+                });
+                if (result.agency) {
+                    applyAgencyBranding(result.agency);
+                }
+                loadContractStatus();
+            } catch (err) {
+                showError(err.message);
+                btn.disabled = false;
+                btn.textContent = 'Validate Contract';
+            }
+        });
     }
 
     // DISCOVER TAB
@@ -834,7 +965,26 @@
                 body: JSON.stringify({ merchantId: merchantId }),
             });
             state.qrToken = result;
+            state.qrMerchantId = merchantId;
             state.currentTab = 'qr';
+            render();
+        } catch (err) {
+            showError(err.message);
+        }
+    }
+
+    async function regenerateQr() {
+        if (!state.qrMerchantId) {
+            state.currentTab = 'discover';
+            render();
+            return;
+        }
+        try {
+            var result = await api('payment/create-qr', {
+                method: 'POST',
+                body: JSON.stringify({ merchantId: state.qrMerchantId }),
+            });
+            state.qrToken = result;
             render();
         } catch (err) {
             showError(err.message);
@@ -893,13 +1043,13 @@
             qrContainer.appendChild(qrImg);
         }
 
-        // Refresh QR button for expired codes
+        // Refresh QR button for expired codes — actually regenerate!
         var refreshBtn = document.getElementById('ctp-refresh-qr');
         if (refreshBtn) {
-            refreshBtn.addEventListener('click', function () {
-                state.qrToken = null;
-                state.currentTab = 'discover';
-                render();
+            refreshBtn.addEventListener('click', async function () {
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = 'Generating...';
+                await regenerateQr();
             });
         }
 
@@ -1424,10 +1574,11 @@
             <div class="ctp-main">
                 <div id="ctp-error"></div>
 
-                <div class="ctp-tabs ctp-mb-6">
+                <div class="ctp-tabs ctp-mb-6" style="flex-wrap:wrap;">
                     <button class="ctp-tab ${state.adminTab === 'overview' ? 'active' : ''}" data-admin-tab="overview">Overview</button>
                     <button class="ctp-tab ${state.adminTab === 'merchants' ? 'active' : ''}" data-admin-tab="merchants">Merchants</button>
                     <button class="ctp-tab ${state.adminTab === 'tourists' ? 'active' : ''}" data-admin-tab="tourists">Tourists</button>
+                    <button class="ctp-tab ${state.adminTab === 'agencies' ? 'active' : ''}" data-admin-tab="agencies">Car Companies</button>
                     <button class="ctp-tab ${state.adminTab === 'settings' ? 'active' : ''}" data-admin-tab="settings">Settings</button>
                 </div>
 
@@ -1454,6 +1605,9 @@
                 break;
             case 'tourists':
                 renderAdminTourists(content);
+                break;
+            case 'agencies':
+                renderAdminAgencies(content);
                 break;
             case 'settings':
                 renderAdminSettings(content);
@@ -1726,6 +1880,252 @@
         } catch (err) {
             container.innerHTML = '<div class="ctp-alert ctp-alert-error">' + escapeHtml(err.message) + '</div>';
         }
+    }
+
+    // =====================
+    // ADMIN - CAR COMPANIES (AGENCIES)
+    // =====================
+    async function renderAdminAgencies(container) {
+        container.innerHTML = '<div class="ctp-loading-screen"><div class="ctp-loading-spinner"></div></div>';
+
+        try {
+            var agencies = await api('admin/agencies');
+            state.adminAgencies = agencies;
+
+            container.innerHTML = `
+                <div class="ctp-card">
+                    <div class="ctp-card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                        <div>
+                            <h3>Car Rental Companies (${agencies.length})</h3>
+                            <p>Configure branding, API settings, and demo contracts for each rental company</p>
+                        </div>
+                        <button class="ctp-btn ctp-btn-primary ctp-btn-sm" id="ctp-add-agency-btn">+ Add Company</button>
+                    </div>
+                    <div id="ctp-agencies-list">
+                        ${agencies.length === 0 ? '<div class="ctp-empty-state"><p>No car companies configured yet.</p></div>' :
+                        agencies.map(function(a) {
+                            return `
+                            <div class="ctp-admin-merchant-item" style="border-left:4px solid ${a.primaryColor};">
+                                <div class="ctp-admin-merchant-info" style="flex:1;">
+                                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                                        ${a.logoUrl ? '<img src="' + escapeHtml(a.logoUrl) + '" alt="' + escapeHtml(a.name) + '" style="height:28px;max-width:100px;object-fit:contain;">' : ''}
+                                        <h4 style="margin:0;">${escapeHtml(a.name)}
+                                            <span class="ctp-status-badge ${a.isActive ? 'ctp-status-approved' : 'ctp-status-suspended'}">${a.isActive ? 'Active' : 'Inactive'}</span>
+                                            ${a.isDemo ? '<span class="ctp-status-badge ctp-status-pending">Demo</span>' : ''}
+                                        </h4>
+                                    </div>
+                                    <p>Prefix: <strong>${escapeHtml(a.contractPrefix)}</strong> | Colors: <span style="display:inline-block;width:14px;height:14px;background:${a.primaryColor};border-radius:3px;vertical-align:middle;border:1px solid var(--ctp-slate-200);"></span> <span style="display:inline-block;width:14px;height:14px;background:${a.secondaryColor};border-radius:3px;vertical-align:middle;border:1px solid var(--ctp-slate-200);"></span></p>
+                                    ${a.demoContract ? '<p>Demo Contract: <code style="background:var(--ctp-slate-100);padding:2px 8px;border-radius:4px;font-size:12px;">' + escapeHtml(a.demoContract) + '</code></p>' : ''}
+                                    ${a.apiEndpoint ? '<p>API: <code style="font-size:11px;">' + escapeHtml(a.apiEndpoint) + '</code></p>' : '<p style="color:var(--ctp-slate-400);font-size:12px;">No API configured (mock mode)</p>'}
+                                </div>
+                                <div class="ctp-admin-merchant-actions" style="flex-shrink:0;">
+                                    <button class="ctp-btn ctp-btn-outline ctp-btn-sm" data-edit-agency="${a.id}">Edit</button>
+                                    <button class="ctp-btn ctp-btn-danger ctp-btn-sm" data-delete-agency="${a.id}" style="padding:8px 12px;">Delete</button>
+                                </div>
+                            </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <div id="ctp-agency-form-area"></div>
+            `;
+
+            // Add company button
+            document.getElementById('ctp-add-agency-btn').addEventListener('click', function() {
+                showAgencyForm(null);
+            });
+
+            // Edit buttons
+            container.querySelectorAll('[data-edit-agency]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var agencyId = parseInt(btn.dataset.editAgency);
+                    var agency = agencies.find(function(a) { return a.id === agencyId; });
+                    if (agency) showAgencyForm(agency);
+                });
+            });
+
+            // Delete buttons
+            container.querySelectorAll('[data-delete-agency]').forEach(function(btn) {
+                btn.addEventListener('click', async function() {
+                    if (!confirm('Delete this car company? This cannot be undone.')) return;
+                    try {
+                        await api('admin/agencies/' + btn.dataset.deleteAgency, { method: 'DELETE' });
+                        renderAdminAgencies(container);
+                    } catch (err) {
+                        alert(err.message);
+                    }
+                });
+            });
+        } catch (err) {
+            container.innerHTML = '<div class="ctp-alert ctp-alert-error">' + escapeHtml(err.message) + '</div>';
+        }
+    }
+
+    function showAgencyForm(agency) {
+        var formArea = document.getElementById('ctp-agency-form-area');
+        if (!formArea) return;
+        var isEdit = !!agency;
+
+        formArea.innerHTML = `
+            <div class="ctp-card ctp-mt-4" style="border:2px solid var(--ctp-primary-200);">
+                <div class="ctp-card-header">
+                    <h3>${isEdit ? 'Edit' : 'Add New'} Car Company</h3>
+                </div>
+                <div class="ctp-card-body">
+                    <form id="ctp-agency-form">
+                        <div class="ctp-form-row">
+                            <div class="ctp-form-group">
+                                <label>Company Name</label>
+                                <input type="text" class="ctp-input" id="ctp-ag-name" value="${escapeHtml((agency && agency.name) || '')}" placeholder="e.g. Hertz" required>
+                            </div>
+                            <div class="ctp-form-group">
+                                <label>Contract Prefix</label>
+                                <input type="text" class="ctp-input" id="ctp-ag-prefix" value="${escapeHtml((agency && agency.contractPrefix) || '')}" placeholder="e.g. HZ" maxlength="5" required style="text-transform:uppercase;font-family:monospace;">
+                            </div>
+                        </div>
+                        <div class="ctp-form-row">
+                            <div class="ctp-form-group">
+                                <label>Primary Color</label>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="color" id="ctp-ag-color1" value="${(agency && agency.primaryColor) || '#000000'}" style="width:48px;height:40px;border:1px solid var(--ctp-slate-200);border-radius:8px;cursor:pointer;">
+                                    <input type="text" class="ctp-input" id="ctp-ag-color1-hex" value="${(agency && agency.primaryColor) || '#000000'}" placeholder="#000000" style="flex:1;font-family:monospace;">
+                                </div>
+                            </div>
+                            <div class="ctp-form-group">
+                                <label>Secondary Color</label>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="color" id="ctp-ag-color2" value="${(agency && agency.secondaryColor) || '#ffffff'}" style="width:48px;height:40px;border:1px solid var(--ctp-slate-200);border-radius:8px;cursor:pointer;">
+                                    <input type="text" class="ctp-input" id="ctp-ag-color2-hex" value="${(agency && agency.secondaryColor) || '#ffffff'}" placeholder="#ffffff" style="flex:1;font-family:monospace;">
+                                </div>
+                            </div>
+                            <div class="ctp-form-group">
+                                <label>Accent Color</label>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="color" id="ctp-ag-color3" value="${(agency && agency.accentColor) || '#000000'}" style="width:48px;height:40px;border:1px solid var(--ctp-slate-200);border-radius:8px;cursor:pointer;">
+                                    <input type="text" class="ctp-input" id="ctp-ag-color3-hex" value="${(agency && agency.accentColor) || '#000000'}" placeholder="#000000" style="flex:1;font-family:monospace;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ctp-form-group">
+                            <label>Logo URL (full-size)</label>
+                            <input type="url" class="ctp-input" id="ctp-ag-logo" value="${escapeHtml((agency && agency.logoUrl) || '')}" placeholder="https://...logo.png">
+                        </div>
+                        <div class="ctp-form-group">
+                            <label>Logo Icon URL (small, for header)</label>
+                            <input type="url" class="ctp-input" id="ctp-ag-logo-icon" value="${escapeHtml((agency && agency.logoIconUrl) || '')}" placeholder="https://...icon.png">
+                        </div>
+
+                        <div style="border-top:1px solid var(--ctp-slate-100);padding-top:16px;margin-top:16px;">
+                            <h4 style="font-size:14px;font-weight:700;color:var(--ctp-slate-700);margin-bottom:12px;">API Configuration</h4>
+                            <div class="ctp-form-group">
+                                <label>API Endpoint (for real validation)</label>
+                                <input type="url" class="ctp-input" id="ctp-ag-api" value="${escapeHtml((agency && agency.apiEndpoint) || '')}" placeholder="https://api.company.com/validate">
+                            </div>
+                            <div class="ctp-form-group">
+                                <label>API Key</label>
+                                <input type="text" class="ctp-input" id="ctp-ag-apikey" value="" placeholder="${isEdit ? 'Leave blank to keep current' : 'Enter API key'}">
+                            </div>
+                        </div>
+
+                        <div style="border-top:1px solid var(--ctp-slate-100);padding-top:16px;margin-top:16px;">
+                            <h4 style="font-size:14px;font-weight:700;color:var(--ctp-slate-700);margin-bottom:12px;">Demo Settings</h4>
+                            <div class="ctp-form-row">
+                                <div class="ctp-form-group">
+                                    <label>Demo Contract Number</label>
+                                    <input type="text" class="ctp-input" id="ctp-ag-demo" value="${escapeHtml((agency && agency.demoContract) || '')}" placeholder="e.g. HZ-DEMO-2026-001" style="font-family:monospace;">
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:16px;margin-top:8px;">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer;">
+                                    <input type="checkbox" id="ctp-ag-active" ${(!agency || agency.isActive) ? 'checked' : ''}> Active
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer;">
+                                    <input type="checkbox" id="ctp-ag-is-demo" ${(agency && agency.isDemo) ? 'checked' : ''}> Show in Demo
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="ctp-ag-preview" style="margin-top:20px;padding:16px;border-radius:var(--ctp-radius-lg);border:1px solid var(--ctp-slate-200);"></div>
+
+                        <div class="ctp-flex ctp-gap-2 ctp-mt-6">
+                            <button type="button" class="ctp-btn ctp-btn-outline" id="ctp-ag-cancel" style="flex:1;">Cancel</button>
+                            <button type="submit" class="ctp-btn ctp-btn-primary" id="ctp-ag-save" style="flex:2;">${isEdit ? 'Update Company' : 'Add Company'}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+
+        // Color picker sync
+        ['1','2','3'].forEach(function(n) {
+            var picker = document.getElementById('ctp-ag-color' + n);
+            var hex = document.getElementById('ctp-ag-color' + n + '-hex');
+            picker.addEventListener('input', function() { hex.value = picker.value; updateAgencyPreview(); });
+            hex.addEventListener('input', function() { if (/^#[0-9a-fA-F]{6}$/.test(hex.value)) { picker.value = hex.value; } updateAgencyPreview(); });
+        });
+
+        // Live preview
+        function updateAgencyPreview() {
+            var preview = document.getElementById('ctp-ag-preview');
+            var name = document.getElementById('ctp-ag-name').value || 'Company';
+            var c1 = document.getElementById('ctp-ag-color1').value;
+            var c2 = document.getElementById('ctp-ag-color2').value;
+            var logo = document.getElementById('ctp-ag-logo').value;
+            preview.innerHTML = `
+                <p style="font-size:11px;color:var(--ctp-slate-400);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;">Live Preview</p>
+                <div style="background:${c1};color:${c2};padding:12px 20px;border-radius:var(--ctp-radius);display:flex;align-items:center;gap:12px;">
+                    ${logo ? '<img src="' + escapeHtml(logo) + '" style="height:24px;max-width:80px;object-fit:contain;" onerror="this.style.display=\'none\'">' : ''}
+                    <span style="font-weight:700;font-size:16px;">${escapeHtml(name)} <span style="font-weight:400;font-size:12px;opacity:0.8;">Tourist Pass</span></span>
+                </div>
+            `;
+        }
+        document.getElementById('ctp-ag-name').addEventListener('input', updateAgencyPreview);
+        document.getElementById('ctp-ag-logo').addEventListener('input', updateAgencyPreview);
+        updateAgencyPreview();
+
+        // Cancel
+        document.getElementById('ctp-ag-cancel').addEventListener('click', function() {
+            formArea.innerHTML = '';
+        });
+
+        // Save
+        document.getElementById('ctp-agency-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            var btn = document.getElementById('ctp-ag-save');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+
+            var payload = {
+                name: document.getElementById('ctp-ag-name').value,
+                contractPrefix: document.getElementById('ctp-ag-prefix').value.toUpperCase(),
+                primaryColor: document.getElementById('ctp-ag-color1').value,
+                secondaryColor: document.getElementById('ctp-ag-color2').value,
+                accentColor: document.getElementById('ctp-ag-color3').value,
+                logoUrl: document.getElementById('ctp-ag-logo').value,
+                logoIconUrl: document.getElementById('ctp-ag-logo-icon').value,
+                apiEndpoint: document.getElementById('ctp-ag-api').value,
+                isActive: document.getElementById('ctp-ag-active').checked ? 1 : 0,
+                isDemo: document.getElementById('ctp-ag-is-demo').checked ? 1 : 0,
+                demoContract: document.getElementById('ctp-ag-demo').value,
+            };
+            var apiKeyVal = document.getElementById('ctp-ag-apikey').value;
+            if (apiKeyVal) payload.apiKey = apiKeyVal;
+
+            try {
+                if (isEdit) {
+                    await api('admin/agencies/' + agency.id, { method: 'PUT', body: JSON.stringify(payload) });
+                } else {
+                    await api('admin/agencies', { method: 'POST', body: JSON.stringify(payload) });
+                }
+                formArea.innerHTML = '';
+                renderAdminAgencies(document.getElementById('ctp-admin-content'));
+            } catch (err) {
+                alert(err.message);
+                btn.disabled = false;
+                btn.textContent = isEdit ? 'Update Company' : 'Add Company';
+            }
+        });
     }
 
     // =====================

@@ -153,6 +153,54 @@ class CTP_Admin {
             </form>
 
             <hr>
+            <h2>Car Rental Companies</h2>
+            <p>Configure car rental companies and their branding. These settings can also be managed from the frontend admin panel under "Car Companies".</p>
+            <?php
+            global $wpdb;
+            $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+            $agencies = $wpdb->get_results( "SELECT * FROM $table_agencies ORDER BY name ASC" );
+            ?>
+            <?php if ( ! empty( $agencies ) ) : ?>
+            <table class="widefat fixed striped" style="max-width:900px;">
+                <thead>
+                    <tr>
+                        <th style="width:40px;">Logo</th>
+                        <th>Name</th>
+                        <th>Prefix</th>
+                        <th>Colors</th>
+                        <th>Demo Contract</th>
+                        <th>API</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $agencies as $a ) : ?>
+                    <tr>
+                        <td>
+                            <?php if ( $a->logo_icon_url ) : ?>
+                                <img src="<?php echo esc_url( $a->logo_icon_url ); ?>" class="ctp-agency-logo-preview">
+                            <?php else : ?>
+                                —
+                            <?php endif; ?>
+                        </td>
+                        <td><strong><?php echo esc_html( $a->name ); ?></strong></td>
+                        <td><code><?php echo esc_html( $a->contract_prefix ); ?></code></td>
+                        <td>
+                            <span class="ctp-agency-color-swatch" style="background:<?php echo esc_attr( $a->primary_color ); ?>;"></span>
+                            <span class="ctp-agency-color-swatch" style="background:<?php echo esc_attr( $a->secondary_color ); ?>;"></span>
+                        </td>
+                        <td><code><?php echo esc_html( $a->demo_contract ?: '—' ); ?></code></td>
+                        <td><?php echo $a->api_endpoint ? '<span style="color:green;">Configured</span>' : '<span style="color:#999;">Mock</span>'; ?></td>
+                        <td><?php echo $a->is_active ? '<span style="color:green;">Active</span>' : '<span style="color:red;">Inactive</span>'; ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php else : ?>
+                <p>No car rental companies configured. Use the frontend admin panel or reset the database to add demo companies.</p>
+            <?php endif; ?>
+
+            <hr>
             <h2>Database Tools</h2>
             <?php if ( isset( $_POST['ctp_reseed'] ) && check_admin_referer( 'ctp_reseed_nonce' ) ) : ?>
                 <?php
