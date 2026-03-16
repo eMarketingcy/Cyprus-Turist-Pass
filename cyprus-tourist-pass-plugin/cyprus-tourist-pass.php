@@ -3,7 +3,7 @@
  * Plugin Name: Cyprus Tourist Pass
  * Plugin URI: https://emarketing.cy
  * Description: A tourist discount pass platform for Cyprus. Validates rental car contracts and provides exclusive merchant discounts via QR codes.
- * Version: 2.0.0
+ * Version: 2.1.0
  * Author: eMarketing Cyprus by Saltpixek Team
  * Author URI: https://eMarketing.cy
  * License: GPL v2 or later
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'CTP_VERSION', '2.0.0' );
+define( 'CTP_VERSION', '2.1.0' );
 define( 'CTP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CTP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'CTP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -66,6 +66,12 @@ final class Cyprus_Tourist_Pass {
 
         // Register shortcodes
         CTP_Shortcode::register();
+
+        // Auto-upgrade database on version change (no deactivate/activate needed)
+        add_action( 'plugins_loaded', array( $this, 'check_version_upgrade' ), 10 );
+
+        // LiteSpeed Cache exceptions
+        add_action( 'litespeed_init', array( $this, 'litespeed_cache_exceptions' ) );
     }
 
     public function init() {
@@ -81,6 +87,44 @@ final class Cyprus_Tourist_Pass {
 
     public static function deactivate() {
         flush_rewrite_rules();
+    }
+
+    /**
+     * Auto-upgrade: run database migrations when plugin version changes
+     * without needing to deactivate and reactivate the plugin.
+     */
+    public function check_version_upgrade() {
+        $db_version = get_option( 'ctp_db_version', '0' );
+        if ( version_compare( $db_version, CTP_VERSION, '<' ) ) {
+            require_once CTP_PLUGIN_DIR . 'includes/class-ctp-database.php';
+            CTP_Database::create_tables();
+            update_option( 'ctp_db_version', CTP_VERSION );
+        }
+    }
+
+    /**
+     * LiteSpeed Cache plugin exceptions.
+     * Exclude CTP REST API and dynamic pages from caching.
+     */
+    public function litespeed_cache_exceptions() {
+        // Do not cache REST API calls for CTP
+        if ( isset( $_SERVER['REQUEST_URI'] ) && strpos( $_SERVER['REQUEST_URI'], '/wp-json/ctp/v1/' ) !== false ) {
+            do_action( 'litespeed_control_set_nocache', 'CTP REST API endpoint' );
+            return;
+        }
+
+        // Exclude CTP shortcode pages from caching when user is logged in (has JWT token)
+        // This ensures dynamic content (QR codes, contract status) is never stale
+        add_filter( 'litespeed_vary_cookies', function ( $cookies ) {
+            $cookies[] = 'ctp_token';
+            return $cookies;
+        } );
+
+        // Add ESI nonce for CTP if LiteSpeed ESI is enabled
+        add_action( 'litespeed_nonce', function ( $nonces ) {
+            $nonces[] = 'wp_rest';
+            return $nonces;
+        } );
     }
 
     /**
