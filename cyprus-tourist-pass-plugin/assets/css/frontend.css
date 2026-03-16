@@ -1,5 +1,5 @@
 /* ===========================================
-   Cyprus Tourist Pass - Frontend Styles v2.0.0
+   Cyprus Tourist Pass - Frontend Styles v2.1.0
    Mobile-First Modern Design 2026
    Agency-Branded Theming Support
    =========================================== */
@@ -1695,6 +1695,72 @@ textarea.ctp-input {
 
 .ctp-animate-in {
     animation: ctp-fade-in 0.3s ease-out forwards;
+}
+
+/* ===========================================
+   MULTI-STEP REGISTRATION WIZARD
+   =========================================== */
+.ctp-reg-step {
+    animation: ctp-fade-in 0.25s ease-out forwards;
+}
+
+.ctp-reg-step-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.ctp-reg-step-indicator {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ctp-step-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--ctp-slate-200);
+    transition: all var(--ctp-transition);
+}
+
+.ctp-step-dot.active {
+    background: var(--ctp-primary-500);
+    box-shadow: 0 0 0 3px var(--ctp-primary-100);
+}
+
+.ctp-step-dot.completed {
+    background: var(--ctp-emerald-500);
+}
+
+.ctp-reg-agency-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--ctp-slate-50);
+    border: 1.5px solid var(--ctp-slate-200);
+    border-radius: var(--ctp-radius-full);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ctp-slate-600);
+    font-family: monospace;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+}
+
+.ctp-reg-agency-pill img {
+    height: 18px;
+    max-width: 60px;
+    object-fit: contain;
+}
+
+/* Header Tourist Pass text when agency is branded */
+.ctp-header-tourist-pass {
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: -0.2px;
 }
 
 /* Reduced motion for accessibility */

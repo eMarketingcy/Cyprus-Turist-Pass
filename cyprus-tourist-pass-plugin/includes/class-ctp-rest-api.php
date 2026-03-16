@@ -26,6 +26,13 @@ class CTP_Rest_API {
             'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
         ) );
 
+        // Public contract pre-check (no auth required - used during registration)
+        register_rest_route( self::NAMESPACE, '/rental/pre-check', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'precheck_contract' ),
+            'permission_callback' => '__return_true',
+        ) );
+
         // Rental routes
         register_rest_route( self::NAMESPACE, '/rental/validate', array(
             'methods'             => 'POST',
@@ -227,7 +234,7 @@ class CTP_Rest_API {
 
         $token = CTP_Auth::generate_token( $user_id, $email, $role );
 
-        return rest_ensure_response( array(
+        $response = array(
             'token' => $token,
             'user'  => array(
                 'id'        => $user_id,
@@ -236,7 +243,64 @@ class CTP_Rest_API {
                 'lastName'  => $last_name,
                 'role'      => $role,
             ),
-        ) );
+        );
+
+        // If tourist provided a contract number during registration, auto-validate it
+        if ( $role === 'CUSTOMER' ) {
+            $contract_number = sanitize_text_field( $params['contractNumber'] ?? '' );
+            if ( $contract_number ) {
+                $contract_number = strtoupper( trim( $contract_number ) );
+                $agency = self::detect_agency_from_contract( $contract_number );
+
+                if ( $agency ) {
+                    $table_contracts = $wpdb->prefix . 'ctp_rental_contracts';
+                    $existing = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT id FROM $table_contracts WHERE contract_number = %s",
+                        $contract_number
+                    ) );
+
+                    if ( ! $existing ) {
+                        // Get customer profile ID
+                        $customer = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT id FROM $table_customers WHERE user_id = %d",
+                            $user_id
+                        ) );
+
+                        if ( $customer ) {
+                            $start_date = current_time( 'mysql' );
+                            $end_date   = date( 'Y-m-d H:i:s', strtotime( '+7 days' ) );
+                            $vehicle_classes = array( 'COMPACT', 'STANDARD', 'SUV', 'PREMIUM', 'CONVERTIBLE' );
+                            $hash = crc32( $contract_number );
+                            $vehicle_class = $vehicle_classes[ abs( $hash ) % count( $vehicle_classes ) ];
+
+                            $wpdb->insert( $table_contracts, array(
+                                'customer_id'     => $customer->id,
+                                'contract_number' => $contract_number,
+                                'agency_name'     => $agency->name,
+                                'agency_slug'     => $agency->slug,
+                                'start_date'      => $start_date,
+                                'end_date'        => $end_date,
+                                'vehicle_class'   => $vehicle_class,
+                                'is_valid'        => 1,
+                            ) );
+
+                            $response['contract'] = array(
+                                'contractNumber' => $contract_number,
+                                'agencyName'     => $agency->name,
+                                'agencySlug'     => $agency->slug,
+                                'startDate'      => $start_date,
+                                'endDate'        => $end_date,
+                                'vehicleClass'   => $vehicle_class,
+                                'isValid'        => true,
+                            );
+                            $response['agency'] = self::format_agency_branding( $agency );
+                        }
+                    }
+                }
+            }
+        }
+
+        return rest_ensure_response( $response );
     }
 
     public static function login_user( $request ) {
@@ -262,7 +326,7 @@ class CTP_Rest_API {
 
         $token = CTP_Auth::generate_token( $user->id, $user->email, $user->role );
 
-        return rest_ensure_response( array(
+        $response = array(
             'token' => $token,
             'user'  => array(
                 'id'        => (int) $user->id,
@@ -271,7 +335,44 @@ class CTP_Rest_API {
                 'lastName'  => $user->last_name,
                 'role'      => $user->role,
             ),
-        ) );
+        );
+
+        // For customers, include active contract and agency branding so the UI can apply it immediately
+        if ( $user->role === 'CUSTOMER' ) {
+            $table_customers = $wpdb->prefix . 'ctp_customer_profiles';
+            $table_contracts = $wpdb->prefix . 'ctp_rental_contracts';
+
+            $customer = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id FROM $table_customers WHERE user_id = %d",
+                $user->id
+            ) );
+
+            if ( $customer ) {
+                $contract = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT * FROM $table_contracts WHERE customer_id = %d AND is_valid = 1 ORDER BY created_at DESC LIMIT 1",
+                    $customer->id
+                ) );
+
+                if ( $contract && strtotime( $contract->end_date ) >= time() ) {
+                    $agency = null;
+                    if ( $contract->agency_slug ) {
+                        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+                        $agency = $wpdb->get_row( $wpdb->prepare(
+                            "SELECT * FROM $table_agencies WHERE slug = %s",
+                            $contract->agency_slug
+                        ) );
+                    }
+                    if ( ! $agency ) {
+                        $agency = self::detect_agency_from_contract( $contract->contract_number );
+                    }
+                    if ( $agency ) {
+                        $response['agency'] = self::format_agency_branding( $agency );
+                    }
+                }
+            }
+        }
+
+        return rest_ensure_response( $response );
     }
 
     public static function get_me( $request ) {
@@ -363,6 +464,56 @@ class CTP_Rest_API {
             'logoUrl'        => $agency->logo_url,
             'logoIconUrl'    => $agency->logo_icon_url,
         );
+    }
+
+    /**
+     * Public pre-check: verify contract number format and agency without requiring authentication.
+     * Used during registration so tourists can validate their contract before creating an account.
+     */
+    public static function precheck_contract( $request ) {
+        $params          = $request->get_json_params();
+        $contract_number = sanitize_text_field( $params['contractNumber'] ?? '' );
+
+        if ( ! $contract_number ) {
+            return new WP_Error( 'missing_fields', 'Contract number is required.', array( 'status' => 400 ) );
+        }
+
+        $contract_number = strtoupper( trim( $contract_number ) );
+
+        // Detect agency from contract prefix
+        $agency = self::detect_agency_from_contract( $contract_number );
+
+        if ( ! $agency ) {
+            global $wpdb;
+            $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+            $active = $wpdb->get_results( "SELECT contract_prefix, name FROM $table_agencies WHERE is_active = 1" );
+            $prefixes = array_map( function( $a ) { return $a->contract_prefix . ' (' . $a->name . ')'; }, $active );
+            return new WP_Error(
+                'invalid_contract',
+                'Contract number not recognized. Valid prefixes: ' . implode( ', ', $prefixes ) . '. Example: HZ-12345 for Hertz or SX-12345 for Sixt.',
+                array( 'status' => 400 )
+            );
+        }
+
+        // Check if contract is already used
+        global $wpdb;
+        $table_contracts = $wpdb->prefix . 'ctp_rental_contracts';
+        $existing = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM $table_contracts WHERE contract_number = %s",
+            $contract_number
+        ) );
+
+        if ( $existing ) {
+            return new WP_Error( 'contract_exists', 'This contract has already been validated by another user.', array( 'status' => 409 ) );
+        }
+
+        return rest_ensure_response( array(
+            'valid'          => true,
+            'contractNumber' => $contract_number,
+            'agencyName'     => $agency->name,
+            'agencySlug'     => $agency->slug,
+            'agency'         => self::format_agency_branding( $agency ),
+        ) );
     }
 
     public static function validate_rental( $request ) {

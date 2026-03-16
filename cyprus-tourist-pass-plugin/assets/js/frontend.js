@@ -1,5 +1,5 @@
 /**
- * Cyprus Tourist Pass - Frontend SPA v2.0.0
+ * Cyprus Tourist Pass - Frontend SPA v2.1.0
  * Pure vanilla JavaScript — no React or framework dependencies
  */
 (function () {
@@ -291,73 +291,123 @@
                         </button>
                     </form>
 
-                    <!-- Register Form (hidden by default) -->
-                    <form id="ctp-register-form" class="ctp-hidden">
-                        <div class="ctp-form-group">
-                            <label>I am a...</label>
-                            <div class="ctp-role-selector">
-                                <div class="ctp-role-option active" data-role="CUSTOMER">
-                                    <div class="ctp-role-icon">&#9992;</div>
-                                    <div class="ctp-role-label">Tourist</div>
-                                </div>
-                                <div class="ctp-role-option" data-role="MERCHANT">
-                                    <div class="ctp-role-icon">&#127970;</div>
-                                    <div class="ctp-role-label">Merchant</div>
-                                </div>
-                            </div>
-                        </div>
-                        <input type="hidden" id="ctp-register-role" value="CUSTOMER">
-                        <div class="ctp-form-row">
+                    <!-- Register Form (hidden by default) - Multi-step wizard -->
+                    <div id="ctp-register-form" class="ctp-hidden">
+                        <!-- Step 1: Role Selection -->
+                        <div id="ctp-reg-step-role" class="ctp-reg-step">
                             <div class="ctp-form-group">
-                                <label>First Name</label>
-                                <input type="text" class="ctp-input" id="ctp-register-fname" placeholder="John" required>
+                                <label>I am a...</label>
+                                <div class="ctp-role-selector">
+                                    <div class="ctp-role-option active" data-role="CUSTOMER">
+                                        <div class="ctp-role-icon">&#9992;</div>
+                                        <div class="ctp-role-label">Tourist</div>
+                                    </div>
+                                    <div class="ctp-role-option" data-role="MERCHANT">
+                                        <div class="ctp-role-icon">&#127970;</div>
+                                        <div class="ctp-role-label">Merchant</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="ctp-form-group">
-                                <label>Last Name</label>
-                                <input type="text" class="ctp-input" id="ctp-register-lname" placeholder="Doe" required>
-                            </div>
-                        </div>
-                        <div class="ctp-form-group">
-                            <label>Email</label>
-                            <input type="email" class="ctp-input" id="ctp-register-email" placeholder="you@example.com" required>
-                        </div>
-                        <div class="ctp-form-group">
-                            <label>Password</label>
-                            <input type="password" class="ctp-input" id="ctp-register-password" placeholder="Create a password" required>
+                            <input type="hidden" id="ctp-register-role" value="CUSTOMER">
+                            <button type="button" class="ctp-btn ctp-btn-primary ctp-btn-full ctp-btn-lg" id="ctp-reg-role-next">
+                                Continue
+                            </button>
                         </div>
 
-                        <!-- Merchant fields -->
-                        <div id="ctp-merchant-fields" class="ctp-hidden">
-                            <div class="ctp-form-group">
-                                <label>Business Name</label>
-                                <input type="text" class="ctp-input" id="ctp-register-business" placeholder="Your Business Name">
-                            </div>
-                            <div class="ctp-form-row">
-                                <div class="ctp-form-group">
-                                    <label>Business Type</label>
-                                    <select class="ctp-select" id="ctp-register-btype">
-                                        <option value="RESTAURANT">Restaurant</option>
-                                        <option value="HOTEL">Hotel</option>
-                                        <option value="ACTIVITY">Activity</option>
-                                        <option value="TOUR">Tour</option>
-                                        <option value="SPA">Spa</option>
-                                    </select>
-                                </div>
-                                <div class="ctp-form-group">
-                                    <label>City</label>
-                                    <input type="text" class="ctp-input" id="ctp-register-city" placeholder="Paphos">
+                        <!-- Step 2: Contract Validation (Tourist only) -->
+                        <div id="ctp-reg-step-contract" class="ctp-reg-step ctp-hidden">
+                            <div class="ctp-reg-step-header">
+                                <button type="button" class="ctp-btn ctp-btn-ghost ctp-btn-sm" id="ctp-reg-contract-back">&larr; Back</button>
+                                <div class="ctp-reg-step-indicator">
+                                    <span class="ctp-step-dot completed"></span>
+                                    <span class="ctp-step-dot active"></span>
+                                    <span class="ctp-step-dot"></span>
                                 </div>
                             </div>
-                            <div class="ctp-form-group">
-                                <label>Address</label>
-                                <input type="text" class="ctp-input" id="ctp-register-address" placeholder="Street address">
+                            <div class="ctp-card-header" style="text-align:center;padding:0 0 16px 0;">
+                                <h3>Validate Your Contract</h3>
+                                <p>Enter your car rental contract number to activate your Tourist Pass</p>
                             </div>
+                            <div id="ctp-reg-contract-error"></div>
+                            <div class="ctp-form-group">
+                                <label>Contract Number</label>
+                                <input type="text" class="ctp-input" id="ctp-reg-contract-number" placeholder="e.g. HZ-12345 or SX-12345" required style="text-transform:uppercase;font-family:monospace;letter-spacing:1px;">
+                                <p class="ctp-text-xs ctp-text-muted ctp-mt-4">The prefix determines the agency (HZ = Hertz, SX = Sixt).</p>
+                            </div>
+                            <div id="ctp-reg-contract-success" class="ctp-hidden"></div>
+                            <button type="button" class="ctp-btn ctp-btn-primary ctp-btn-full ctp-btn-lg" id="ctp-reg-contract-validate">
+                                Validate Contract
+                            </button>
+                            <button type="button" class="ctp-btn ctp-btn-primary ctp-btn-full ctp-btn-lg ctp-hidden" id="ctp-reg-contract-next">
+                                Continue to Registration
+                            </button>
                         </div>
 
-                        <button type="submit" class="ctp-btn ctp-btn-primary ctp-btn-full ctp-btn-lg" id="ctp-register-btn">
-                            Create Account
-                        </button>
-                    </form>
+                        <!-- Step 3: Personal Details (Tourist) / All Details (Merchant) -->
+                        <div id="ctp-reg-step-details" class="ctp-reg-step ctp-hidden">
+                            <div class="ctp-reg-step-header">
+                                <button type="button" class="ctp-btn ctp-btn-ghost ctp-btn-sm" id="ctp-reg-details-back">&larr; Back</button>
+                                <div class="ctp-reg-step-indicator" id="ctp-reg-details-indicator">
+                                    <span class="ctp-step-dot completed"></span>
+                                    <span class="ctp-step-dot completed"></span>
+                                    <span class="ctp-step-dot active"></span>
+                                </div>
+                            </div>
+                            <div id="ctp-reg-agency-badge" class="ctp-hidden"></div>
+                            <form id="ctp-register-details-form">
+                                <div class="ctp-form-row">
+                                    <div class="ctp-form-group">
+                                        <label>First Name</label>
+                                        <input type="text" class="ctp-input" id="ctp-register-fname" placeholder="John" required>
+                                    </div>
+                                    <div class="ctp-form-group">
+                                        <label>Last Name</label>
+                                        <input type="text" class="ctp-input" id="ctp-register-lname" placeholder="Doe" required>
+                                    </div>
+                                </div>
+                                <div class="ctp-form-group">
+                                    <label>Email</label>
+                                    <input type="email" class="ctp-input" id="ctp-register-email" placeholder="you@example.com" required>
+                                </div>
+                                <div class="ctp-form-group">
+                                    <label>Password</label>
+                                    <input type="password" class="ctp-input" id="ctp-register-password" placeholder="Create a password" required>
+                                </div>
+
+                                <!-- Merchant fields (shown only for MERCHANT role) -->
+                                <div id="ctp-merchant-fields" class="ctp-hidden">
+                                    <div class="ctp-form-group">
+                                        <label>Business Name</label>
+                                        <input type="text" class="ctp-input" id="ctp-register-business" placeholder="Your Business Name">
+                                    </div>
+                                    <div class="ctp-form-row">
+                                        <div class="ctp-form-group">
+                                            <label>Business Type</label>
+                                            <select class="ctp-select" id="ctp-register-btype">
+                                                <option value="RESTAURANT">Restaurant</option>
+                                                <option value="HOTEL">Hotel</option>
+                                                <option value="ACTIVITY">Activity</option>
+                                                <option value="TOUR">Tour</option>
+                                                <option value="SPA">Spa</option>
+                                            </select>
+                                        </div>
+                                        <div class="ctp-form-group">
+                                            <label>City</label>
+                                            <input type="text" class="ctp-input" id="ctp-register-city" placeholder="Paphos">
+                                        </div>
+                                    </div>
+                                    <div class="ctp-form-group">
+                                        <label>Address</label>
+                                        <input type="text" class="ctp-input" id="ctp-register-address" placeholder="Street address">
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="ctp-btn ctp-btn-primary ctp-btn-full ctp-btn-lg" id="ctp-register-btn">
+                                    Create Account
+                                </button>
+                            </form>
+                        </div>
+                    </div>
 
                     <div class="ctp-demo-section">
                         <p>Quick demo login:</p>
@@ -379,8 +429,22 @@
                 var isLogin = tab.dataset.authTab === 'login';
                 document.getElementById('ctp-login-form').classList.toggle('ctp-hidden', !isLogin);
                 document.getElementById('ctp-register-form').classList.toggle('ctp-hidden', isLogin);
+
+                // Reset registration wizard to step 1 when switching tabs
+                if (!isLogin) {
+                    document.getElementById('ctp-reg-step-role').classList.remove('ctp-hidden');
+                    document.getElementById('ctp-reg-step-contract').classList.add('ctp-hidden');
+                    document.getElementById('ctp-reg-step-details').classList.add('ctp-hidden');
+                }
             });
         });
+
+        // === MULTI-STEP REGISTRATION WIZARD ===
+        var regState = {
+            role: 'CUSTOMER',
+            contractNumber: '',
+            agencyData: null,
+        };
 
         // Role selector
         container.querySelectorAll('.ctp-role-option').forEach(function (opt) {
@@ -388,8 +452,117 @@
                 container.querySelectorAll('.ctp-role-option').forEach(function (o) { o.classList.remove('active'); });
                 opt.classList.add('active');
                 document.getElementById('ctp-register-role').value = opt.dataset.role;
-                document.getElementById('ctp-merchant-fields').classList.toggle('ctp-hidden', opt.dataset.role !== 'MERCHANT');
+                regState.role = opt.dataset.role;
             });
+        });
+
+        // Step 1 -> Step 2/3: Role selection "Continue"
+        document.getElementById('ctp-reg-role-next').addEventListener('click', function () {
+            document.getElementById('ctp-reg-step-role').classList.add('ctp-hidden');
+            if (regState.role === 'CUSTOMER') {
+                // Tourist: show contract validation step
+                document.getElementById('ctp-reg-step-contract').classList.remove('ctp-hidden');
+            } else {
+                // Merchant: skip contract, go directly to details
+                document.getElementById('ctp-reg-step-details').classList.remove('ctp-hidden');
+                document.getElementById('ctp-merchant-fields').classList.remove('ctp-hidden');
+                // Show 2-step indicator for merchants
+                document.getElementById('ctp-reg-details-indicator').innerHTML = '<span class="ctp-step-dot completed"></span><span class="ctp-step-dot active"></span>';
+            }
+        });
+
+        // Step 2 back button (contract -> role)
+        document.getElementById('ctp-reg-contract-back').addEventListener('click', function () {
+            document.getElementById('ctp-reg-step-contract').classList.add('ctp-hidden');
+            document.getElementById('ctp-reg-step-role').classList.remove('ctp-hidden');
+            // Reset contract state
+            regState.contractNumber = '';
+            regState.agencyData = null;
+        });
+
+        // Step 2: Validate Contract
+        document.getElementById('ctp-reg-contract-validate').addEventListener('click', async function () {
+            var btn = document.getElementById('ctp-reg-contract-validate');
+            var contractInput = document.getElementById('ctp-reg-contract-number');
+            var contractNumber = contractInput.value.toUpperCase().trim();
+            var errEl = document.getElementById('ctp-reg-contract-error');
+            var successEl = document.getElementById('ctp-reg-contract-success');
+
+            if (!contractNumber) {
+                errEl.innerHTML = '<div class="ctp-alert ctp-alert-error">Please enter your contract number.</div>';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Validating...';
+            errEl.innerHTML = '';
+            successEl.classList.add('ctp-hidden');
+
+            try {
+                var result = await api('rental/pre-check', {
+                    method: 'POST',
+                    body: JSON.stringify({ contractNumber: contractNumber }),
+                });
+
+                regState.contractNumber = result.contractNumber;
+                regState.agencyData = result.agency;
+
+                // Show success with agency branding
+                var agencyLogo = result.agency && result.agency.logoUrl
+                    ? '<img src="' + escapeHtml(result.agency.logoUrl) + '" alt="' + escapeHtml(result.agencyName) + '" style="height:36px;max-width:120px;object-fit:contain;margin-bottom:8px;">'
+                    : '';
+
+                successEl.innerHTML = `
+                    <div class="ctp-contract-status ctp-agency-branded" style="margin-bottom:16px;">
+                        ${agencyLogo}
+                        <h4>${icons.check} Contract Verified — ${escapeHtml(result.agencyName)}</h4>
+                        <div class="ctp-contract-detail">
+                            <span class="label">Contract</span>
+                            <span class="value" style="font-family:monospace;letter-spacing:1px;">${escapeHtml(result.contractNumber)}</span>
+                        </div>
+                    </div>
+                `;
+                successEl.classList.remove('ctp-hidden');
+
+                // Hide validate button, show continue button
+                btn.classList.add('ctp-hidden');
+                document.getElementById('ctp-reg-contract-next').classList.remove('ctp-hidden');
+
+                // Disable the input
+                contractInput.disabled = true;
+                contractInput.style.opacity = '0.6';
+            } catch (err) {
+                errEl.innerHTML = '<div class="ctp-alert ctp-alert-error">' + escapeHtml(err.message) + '</div>';
+                btn.disabled = false;
+                btn.textContent = 'Validate Contract';
+            }
+        });
+
+        // Step 2 -> Step 3: Contract validated, continue to details
+        document.getElementById('ctp-reg-contract-next').addEventListener('click', function () {
+            document.getElementById('ctp-reg-step-contract').classList.add('ctp-hidden');
+            document.getElementById('ctp-reg-step-details').classList.remove('ctp-hidden');
+            document.getElementById('ctp-merchant-fields').classList.add('ctp-hidden');
+
+            // Show agency badge on details step
+            if (regState.agencyData) {
+                var badgeEl = document.getElementById('ctp-reg-agency-badge');
+                var agencyLogo = regState.agencyData.logoIconUrl
+                    ? '<img src="' + escapeHtml(regState.agencyData.logoIconUrl) + '" alt="' + escapeHtml(regState.agencyData.name) + '" style="height:20px;max-width:80px;object-fit:contain;">'
+                    : '<strong>' + escapeHtml(regState.agencyData.name) + '</strong>';
+                badgeEl.innerHTML = '<div class="ctp-reg-agency-pill">' + agencyLogo + ' <span>' + escapeHtml(regState.contractNumber) + '</span></div>';
+                badgeEl.classList.remove('ctp-hidden');
+            }
+        });
+
+        // Step 3 back button (details -> contract or role)
+        document.getElementById('ctp-reg-details-back').addEventListener('click', function () {
+            document.getElementById('ctp-reg-step-details').classList.add('ctp-hidden');
+            if (regState.role === 'CUSTOMER') {
+                document.getElementById('ctp-reg-step-contract').classList.remove('ctp-hidden');
+            } else {
+                document.getElementById('ctp-reg-step-role').classList.remove('ctp-hidden');
+            }
         });
 
         // Login form
@@ -416,8 +589,8 @@
             }
         });
 
-        // Register form
-        document.getElementById('ctp-register-form').addEventListener('submit', async function (e) {
+        // Register form (Step 3 submission)
+        document.getElementById('ctp-register-details-form').addEventListener('submit', async function (e) {
             e.preventDefault();
             var btn = document.getElementById('ctp-register-btn');
             btn.disabled = true;
@@ -429,8 +602,13 @@
                 password: document.getElementById('ctp-register-password').value,
                 firstName: document.getElementById('ctp-register-fname').value,
                 lastName: document.getElementById('ctp-register-lname').value,
-                role: document.getElementById('ctp-register-role').value,
+                role: regState.role,
             };
+
+            // Include contract number for tourists
+            if (regState.role === 'CUSTOMER' && regState.contractNumber) {
+                body.contractNumber = regState.contractNumber;
+            }
 
             if (body.role === 'MERCHANT') {
                 body.businessName = document.getElementById('ctp-register-business').value;
@@ -444,6 +622,10 @@
                     method: 'POST',
                     body: JSON.stringify(body),
                 });
+                // If registration returned agency branding, apply it
+                if (result.agency) {
+                    applyAgencyBranding(result.agency);
+                }
                 handleLoginSuccess(result);
             } catch (err) {
                 showError(err.message);
@@ -483,6 +665,10 @@
         state.user = result.user;
         localStorage.setItem('ctp_token', result.token);
         localStorage.setItem('ctp_user', JSON.stringify(result.user));
+        // Apply agency branding if returned (e.g. from registration with contract)
+        if (result.agency) {
+            applyAgencyBranding(result.agency);
+        }
         render();
     }
 
@@ -588,7 +774,7 @@
                     <div class="ctp-header-brand">
                         ${agencyLogoHtml}
                         <div>
-                            <h2>${state.agency ? escapeHtml(state.agency.name) + ' <span style="font-weight:400;font-size:13px;opacity:0.8;">Tourist Pass</span>' : 'Cyprus Tourist Pass'}</h2>
+                            <h2>${state.agency ? '<span class="ctp-header-tourist-pass">Tourist Pass</span>' : 'Cyprus Tourist Pass'}</h2>
                         </div>
                         <span class="ctp-role-badge ctp-role-badge-customer">Tourist</span>
                     </div>
