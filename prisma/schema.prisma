@@ -1,117 +1,222 @@
+// ============================================================
+// Cyprus Tourist Pass — Database Schema v2.0.0
+// ============================================================
+// This schema covers: Users, Merchants, Contracts, Transactions,
+// QR Tokens, Rental Agencies, Audit Logs, and Platform Settings.
+// Designed for Stripe Connect split-payment architecture.
+// ============================================================
+
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
   provider = "sqlite"
 }
 
+// ─── USERS ───────────────────────────────────────────────────
+// Central user table. Role determines access level.
+// WordPress integration: mirrors wp_ctp_users but with richer fields.
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
-  passwordHash  String
-  firstName     String
-  lastName      String
-  role          String    @default("CUSTOMER") // CUSTOMER, MERCHANT, ADMIN
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  phone        String?              // Optional phone for SMS/WhatsApp notifications
+  role         String   @default("CUSTOMER") // CUSTOMER | MERCHANT | ADMIN
+  isActive     Boolean  @default(true)       // Soft-disable accounts
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   customerProfile CustomerProfile?
   merchantProfile MerchantProfile?
+  auditLogs       AuditLog[]
 }
 
+// ─── CUSTOMER PROFILE ────────────────────────────────────────
+// One-to-one with User (role=CUSTOMER).
+// Links to their active rental contract and transaction history.
 model CustomerProfile {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  activeContractId String? @unique
-  contract         RentalContract? @relation(fields: [activeContractId], references: [id])
+  // The currently active contract (only one at a time)
+  activeContractId String?          @unique
+  contract         RentalContract?  @relation(fields: [activeContractId], references: [id])
 
   transactions Transaction[]
+  qrTokens     QrToken[]
+
+  createdAt DateTime @default(now())
 }
 
+// ─── MERCHANT PROFILE ────────────────────────────────────────
+// One-to-one with User (role=MERCHANT).
+// Contains all business details, approval status, and Stripe Connect info.
 model MerchantProfile {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  businessName    String
-  businessType    String   // RESTAURANT, HOTEL, ACTIVITY, TOUR, SPA
-  description     String?
-  address         String
-  city            String   @default("Paphos")
-  latitude        Float?
-  longitude       Float?
-  imageUrl        String?
+  // Business info
+  businessName String
+  businessType String               // RESTAURANT | HOTEL | ACTIVITY | TOUR | SPA | SHOP | BAR
+  description  String?
+  address      String
+  city         String  @default("Paphos")
+  postalCode   String?
+  latitude     Float?
+  longitude    Float?
+  imageUrl     String?
+  websiteUrl   String?
+  phoneNumber  String?
 
-  discountRate    Float    @default(5.0) // Minimum 5%, max 25%
-  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED, SUSPENDED
+  // Discount & fees
+  discountRate    Float  @default(5.0)      // Minimum 5%, max 50% — enforced in app logic
+  status          String @default("PENDING") // PENDING | APPROVED | REJECTED | SUSPENDED
+  platformFeeRate Float?                    // Custom fee 2%-15%, NULL = use global default
 
-  stripeAccountId String?  @unique
-  platformFeeRate Float?   // Custom fee 2-15%, overrides global if set
+  // Stripe Connect (for split payments)
+  stripeAccountId     String?  @unique      // Stripe Connected Account ID (acct_xxx)
+  stripeOnboardingComplete Boolean @default(false)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  // Operating hours (JSON string: {"mon":"09:00-22:00","tue":"09:00-22:00",...})
+  operatingHours String?
 
-  transactions    Transaction[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions Transaction[]
+  qrTokens     QrToken[]
 }
 
+// ─── RENTAL AGENCIES ────────────────────────────────────────
+// Registry of supported car rental agencies.
+// Each agency has an API endpoint (real or mock).
+model RentalAgency {
+  id          String  @id @default(uuid())
+  name        String  @unique              // e.g. "Sixt", "GeoDrive", "Hertz"
+  code        String  @unique              // e.g. "SIXT", "GEODRIVE"
+  apiEndpoint String?                      // URL of their validation API (null = use mock)
+  apiKey      String?                      // Encrypted API key for real integrations
+  isMock      Boolean @default(true)       // true = use built-in mock validator
+  isActive    Boolean @default(true)
+  logoUrl     String?
+
+  contracts RentalContract[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── RENTAL CONTRACTS ───────────────────────────────────────
+// Validated car rental contracts. Determines the customer's
+// access window (start_date to end_date).
 model RentalContract {
   id              String   @id @default(uuid())
   contractNumber  String   @unique
-  agencyName      String
+  agencyId        String
+  agency          RentalAgency @relation(fields: [agencyId], references: [id])
+  agencyName      String                   // Denormalized for quick display
   startDate       DateTime
   endDate         DateTime
-  vehicleClass    String?
+  vehicleClass    String?  @default("STANDARD") // ECONOMY | STANDARD | PREMIUM | SUV
+  pickupLocation  String?
+  returnLocation  String?
   isValid         Boolean  @default(true)
+  validatedAt     DateTime @default(now())
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   customerProfile CustomerProfile?
 }
 
-model Transaction {
-  id                String   @id @default(uuid())
-  customerId        String
-  customer          CustomerProfile @relation(fields: [customerId], references: [id])
-
-  merchantId        String
-  merchant          MerchantProfile @relation(fields: [merchantId], references: [id])
-
-  originalAmount    Float
-  discountRate      Float    // Percentage applied
-  discountAmount    Float    // Absolute discount
-  finalAmount       Float    // Amount paid by customer
-
-  platformFeeRate   Float    // Fee percentage
-  platformFee       Float    // Amount kept by platform
-  merchantPayout    Float    // Amount sent to merchant
-
-  status            String   @default("PENDING") // PENDING, COMPLETED, FAILED, REFUNDED
-  stripePaymentId   String?  @unique
-  qrToken           String?  @unique // The QR token used for this transaction
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-}
-
+// ─── QR TOKENS ──────────────────────────────────────────────
+// Dynamic QR codes generated when a customer wants to claim
+// a discount at a merchant. Short-lived (15 min default).
 model QrToken {
-  id            String   @id @default(uuid())
-  token         String   @unique
-  customerId    String
-  merchantId    String
-  discountRate  Float
-  expiresAt     DateTime
-  used          Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(uuid())
+  token        String   @unique             // Cryptographically random token
+  customerId   String
+  customer     CustomerProfile @relation(fields: [customerId], references: [id])
+  merchantId   String
+  merchant     MerchantProfile @relation(fields: [merchantId], references: [id])
+  discountRate Float                        // Snapshot of discount at generation time
+  amount       Float?                       // Pre-filled amount (optional, can be set at scan)
+  expiresAt    DateTime
+  used         Boolean  @default(false)
+  usedAt       DateTime?
+
+  createdAt DateTime @default(now())
+
+  transaction Transaction?
 }
 
+// ─── TRANSACTIONS ───────────────────────────────────────────
+// Full payment record with split-payment breakdown.
+// Flow: original_amount → discount → final_amount → (platform_fee + merchant_payout)
+model Transaction {
+  id         String          @id @default(uuid())
+  customerId String
+  customer   CustomerProfile @relation(fields: [customerId], references: [id])
+  merchantId String
+  merchant   MerchantProfile @relation(fields: [merchantId], references: [id])
+
+  // QR token that initiated this transaction
+  qrTokenId String?  @unique
+  qrToken   QrToken? @relation(fields: [qrTokenId], references: [id])
+
+  // Financial breakdown
+  originalAmount  Float               // Bill before discount (e.g. €100)
+  discountRate    Float               // Percentage applied (e.g. 15.0)
+  discountAmount  Float               // Absolute discount (e.g. €15)
+  finalAmount     Float               // Customer pays this (e.g. €85)
+  platformFeeRate Float               // Fee percentage (e.g. 10.0)
+  platformFee     Float               // Platform keeps (e.g. €8.50)
+  merchantPayout  Float               // Merchant receives (e.g. €76.50)
+  currency        String @default("EUR")
+
+  // Payment processing
+  status          String @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED | REFUNDED
+  stripePaymentId String? @unique           // Stripe PaymentIntent ID (pi_xxx)
+  stripeTransferId String?                  // Stripe Transfer ID (tr_xxx) to merchant
+  paymentMethod    String?                  // card | apple_pay | google_pay
+
+  // Refund tracking
+  refundedAt      DateTime?
+  refundReason    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── PLATFORM SETTINGS ──────────────────────────────────────
+// Global key-value configuration store.
+// Keys: default_platform_fee, minimum_discount_rate, maximum_discount_rate,
+//       stripe_mode (test/live), currency, mock_api_enabled, etc.
 model PlatformSettings {
-  id                  String   @id @default(uuid())
-  defaultPlatformFee  Float    @default(10.0)
-  minimumDiscountRate Float    @default(5.0)
-  maximumDiscountRate Float    @default(25.0)
-  updatedAt           DateTime @updatedAt
+  id           String   @id @default(uuid())
+  settingKey   String   @unique
+  settingValue String
+  description  String?                     // Human-readable description
+  updatedAt    DateTime @updatedAt
+}
+
+// ─── AUDIT LOG ──────────────────────────────────────────────
+// Tracks important admin/system actions for accountability.
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String                         // e.g. "MERCHANT_APPROVED", "FEE_CHANGED", "CONTRACT_VALIDATED"
+  entity    String                         // e.g. "MerchantProfile", "Transaction"
+  entityId  String                         // ID of the affected record
+  details   String?                        // JSON with before/after or extra context
+  ipAddress String?
+  createdAt DateTime @default(now())
 }
