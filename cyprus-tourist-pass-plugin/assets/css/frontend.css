@@ -1,6 +1,7 @@
 /* ===========================================
-   Cyprus Tourist Pass - Frontend Styles v1.1.0
+   Cyprus Tourist Pass - Frontend Styles v2.0.0
    Mobile-First Modern Design 2026
+   Agency-Branded Theming Support
    =========================================== */
 
 /* Google Fonts - Inter for clean modern UI */
@@ -100,6 +101,134 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-size: 16px;
+
+    /* Agency branding defaults (overridden via JS) */
+    --ctp-agency-primary: var(--ctp-primary-600);
+    --ctp-agency-secondary: var(--ctp-white);
+    --ctp-agency-accent: var(--ctp-primary-600);
+}
+
+/* ===========================================
+   AGENCY BRANDING - Dynamic Theme Overrides
+   =========================================== */
+
+/* Branded header when agency is active */
+.ctp-header-branded {
+    background: var(--ctp-agency-primary) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-bottom-color: rgba(0,0,0,0.1) !important;
+}
+
+.ctp-header-branded .ctp-header-brand h2 {
+    color: var(--ctp-agency-secondary) !important;
+}
+
+.ctp-header-branded .ctp-header-user span {
+    color: var(--ctp-agency-secondary) !important;
+    opacity: 0.9;
+}
+
+.ctp-header-branded .ctp-btn-ghost {
+    color: var(--ctp-agency-secondary) !important;
+}
+
+.ctp-header-branded .ctp-btn-ghost:hover {
+    background: rgba(255,255,255,0.15) !important;
+}
+
+.ctp-header-branded .ctp-role-badge-customer {
+    background: rgba(255,255,255,0.2) !important;
+    color: var(--ctp-agency-secondary) !important;
+}
+
+.ctp-header-agency-logo {
+    height: 32px;
+    max-width: 100px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
+/* Hertz-specific branding */
+.ctp-app[data-agency="hertz"] .ctp-header-branded {
+    background: #FFD200 !important;
+}
+
+.ctp-app[data-agency="hertz"] .ctp-header-brand h2 {
+    color: #000000 !important;
+}
+
+.ctp-app[data-agency="hertz"] .ctp-bottom-nav {
+    border-top-color: #FFD200 !important;
+}
+
+.ctp-app[data-agency="hertz"] .ctp-nav-item.active {
+    color: #000000 !important;
+}
+
+.ctp-app[data-agency="hertz"] .ctp-contract-status.ctp-agency-branded {
+    background: linear-gradient(135deg, #FFF8CC, #FFE066) !important;
+    border-color: #FFD200 !important;
+}
+
+.ctp-app[data-agency="hertz"] .ctp-contract-status h4 {
+    color: #000000 !important;
+}
+
+.ctp-app[data-agency="hertz"] .ctp-qr-frame::before,
+.ctp-app[data-agency="hertz"] .ctp-qr-frame::after,
+.ctp-app[data-agency="hertz"] .ctp-qr-frame .ctp-qr-corners-bottom::before,
+.ctp-app[data-agency="hertz"] .ctp-qr-frame .ctp-qr-corners-bottom::after {
+    border-color: #FFD200 !important;
+}
+
+/* Sixt-specific branding */
+.ctp-app[data-agency="sixt"] .ctp-header-branded {
+    background: #FF5F00 !important;
+}
+
+.ctp-app[data-agency="sixt"] .ctp-header-brand h2 {
+    color: #ffffff !important;
+}
+
+.ctp-app[data-agency="sixt"] .ctp-bottom-nav {
+    border-top-color: #FF5F00 !important;
+}
+
+.ctp-app[data-agency="sixt"] .ctp-nav-item.active {
+    color: #FF5F00 !important;
+}
+
+.ctp-app[data-agency="sixt"] .ctp-contract-status.ctp-agency-branded {
+    background: linear-gradient(135deg, #FFF0E6, #FFD4B3) !important;
+    border-color: #FF5F00 !important;
+}
+
+.ctp-app[data-agency="sixt"] .ctp-contract-status h4 {
+    color: #FF5F00 !important;
+}
+
+.ctp-app[data-agency="sixt"] .ctp-qr-frame::before,
+.ctp-app[data-agency="sixt"] .ctp-qr-frame::after,
+.ctp-app[data-agency="sixt"] .ctp-qr-frame .ctp-qr-corners-bottom::before,
+.ctp-app[data-agency="sixt"] .ctp-qr-frame .ctp-qr-corners-bottom::after {
+    border-color: #FF5F00 !important;
+}
+
+/* Generic agency accent for buttons */
+.ctp-app[data-agency] .ctp-btn-primary {
+    background: linear-gradient(135deg, var(--ctp-agency-primary), var(--ctp-agency-accent)) !important;
+    color: var(--ctp-agency-secondary) !important;
+}
+
+.ctp-app[data-agency] .ctp-btn-primary:hover:not(:disabled) {
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+}
+
+/* Demo contract cards hover */
+.ctp-demo-contract-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ctp-shadow-md);
 }
 
 /* ===========================================

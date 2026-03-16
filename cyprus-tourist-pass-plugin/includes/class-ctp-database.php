@@ -62,6 +62,31 @@ class CTP_Database {
         ) $charset_collate;";
         dbDelta( $sql_merchants );
 
+        // Rental agencies (car rental company configurations)
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+        $sql_agencies = "CREATE TABLE $table_agencies (
+            id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            name varchar(100) NOT NULL,
+            slug varchar(50) NOT NULL,
+            contract_prefix varchar(10) NOT NULL,
+            primary_color varchar(7) NOT NULL DEFAULT '#000000',
+            secondary_color varchar(7) NOT NULL DEFAULT '#ffffff',
+            accent_color varchar(7) NOT NULL DEFAULT '#000000',
+            logo_url varchar(500) DEFAULT NULL,
+            logo_icon_url varchar(500) DEFAULT NULL,
+            api_endpoint varchar(500) DEFAULT NULL,
+            api_key varchar(255) DEFAULT NULL,
+            is_active tinyint(1) NOT NULL DEFAULT 1,
+            is_demo tinyint(1) NOT NULL DEFAULT 0,
+            demo_contract varchar(100) DEFAULT NULL,
+            created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY slug (slug),
+            UNIQUE KEY contract_prefix (contract_prefix)
+        ) $charset_collate;";
+        dbDelta( $sql_agencies );
+
         // Rental contracts
         $table_contracts = $wpdb->prefix . 'ctp_rental_contracts';
         $sql_contracts = "CREATE TABLE $table_contracts (
@@ -69,6 +94,7 @@ class CTP_Database {
             customer_id bigint(20) UNSIGNED NOT NULL,
             contract_number varchar(100) NOT NULL,
             agency_name varchar(100) NOT NULL,
+            agency_slug varchar(50) DEFAULT NULL,
             start_date datetime NOT NULL,
             end_date datetime NOT NULL,
             vehicle_class varchar(50) DEFAULT 'STANDARD',
@@ -144,6 +170,7 @@ class CTP_Database {
         $table_contracts = $wpdb->prefix . 'ctp_rental_contracts';
         $table_settings  = $wpdb->prefix . 'ctp_platform_settings';
         $table_transactions = $wpdb->prefix . 'ctp_transactions';
+        $table_agencies  = $wpdb->prefix . 'ctp_rental_agencies';
 
         // Check if already seeded
         $existing = $wpdb->get_var( "SELECT COUNT(*) FROM $table_users" );
@@ -152,6 +179,35 @@ class CTP_Database {
         }
 
         $password_hash = password_hash( 'password123', PASSWORD_BCRYPT );
+
+        // Rental agencies - Hertz and Sixt
+        $wpdb->insert( $table_agencies, array(
+            'name'             => 'Hertz',
+            'slug'             => 'hertz',
+            'contract_prefix'  => 'HZ',
+            'primary_color'    => '#FFD200',
+            'secondary_color'  => '#000000',
+            'accent_color'     => '#FFD200',
+            'logo_url'         => 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Hertz_logo_2023.svg/512px-Hertz_logo_2023.svg.png',
+            'logo_icon_url'    => 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Hertz_logo_2023.svg/128px-Hertz_logo_2023.svg.png',
+            'is_active'        => 1,
+            'is_demo'          => 1,
+            'demo_contract'    => 'HZ-DEMO-2026-001',
+        ) );
+
+        $wpdb->insert( $table_agencies, array(
+            'name'             => 'Sixt',
+            'slug'             => 'sixt',
+            'contract_prefix'  => 'SX',
+            'primary_color'    => '#FF5F00',
+            'secondary_color'  => '#000000',
+            'accent_color'     => '#FF5F00',
+            'logo_url'         => 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Sixt_logo.svg/512px-Sixt_logo.svg.png',
+            'logo_icon_url'    => 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/Sixt_logo.svg/128px-Sixt_logo.svg.png',
+            'is_active'        => 1,
+            'is_demo'          => 1,
+            'demo_contract'    => 'SX-DEMO-2026-001',
+        ) );
 
         // Admin user
         $wpdb->insert( $table_users, array(
@@ -177,14 +233,15 @@ class CTP_Database {
         ) );
         $tourist_profile_id = $wpdb->insert_id;
 
-        // Pre-validated rental contract
+        // Pre-validated rental contract (Hertz demo)
         $wpdb->insert( $table_contracts, array(
             'customer_id'     => $tourist_profile_id,
-            'contract_number' => 'TEST-12345',
-            'agency_name'     => 'Sixt',
+            'contract_number' => 'HZ-DEMO-2026-001',
+            'agency_name'     => 'Hertz',
+            'agency_slug'     => 'hertz',
             'start_date'      => current_time( 'mysql' ),
             'end_date'        => date( 'Y-m-d H:i:s', strtotime( '+7 days' ) ),
-            'vehicle_class'   => 'STANDARD',
+            'vehicle_class'   => 'COMPACT',
             'is_valid'        => 1,
         ) );
 
@@ -402,6 +459,7 @@ class CTP_Database {
             'ctp_transactions',
             'ctp_qr_tokens',
             'ctp_rental_contracts',
+            'ctp_rental_agencies',
             'ctp_merchant_profiles',
             'ctp_customer_profiles',
             'ctp_users',

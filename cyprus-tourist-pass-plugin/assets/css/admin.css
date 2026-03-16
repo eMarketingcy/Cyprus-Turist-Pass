@@ -27,3 +27,31 @@
     color: #64748b;
     margin: 0;
 }
+
+/* Rental Agencies table */
+.ctp-agency-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.ctp-agency-row:last-child {
+    border-bottom: none;
+}
+
+.ctp-agency-color-swatch {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    vertical-align: middle;
+}
+
+.ctp-agency-logo-preview {
+    height: 24px;
+    max-width: 80px;
+    object-fit: contain;
+}

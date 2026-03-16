@@ -39,6 +39,13 @@ class CTP_Rest_API {
             'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
         ) );
 
+        // Rental agencies (public)
+        register_rest_route( self::NAMESPACE, '/rental/agencies', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'list_agencies' ),
+            'permission_callback' => '__return_true',
+        ) );
+
         // Merchant routes
         register_rest_route( self::NAMESPACE, '/merchants', array(
             'methods'             => 'GET',
@@ -129,6 +136,31 @@ class CTP_Rest_API {
         register_rest_route( self::NAMESPACE, '/admin/settings', array(
             'methods'             => 'PUT',
             'callback'            => array( __CLASS__, 'admin_update_settings' ),
+            'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
+        ) );
+
+        // Admin rental agency routes
+        register_rest_route( self::NAMESPACE, '/admin/agencies', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'admin_list_agencies' ),
+            'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/admin/agencies', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'admin_create_agency' ),
+            'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/admin/agencies/(?P<id>\d+)', array(
+            'methods'             => 'PUT',
+            'callback'            => array( __CLASS__, 'admin_update_agency' ),
+            'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
+        ) );
+
+        register_rest_route( self::NAMESPACE, '/admin/agencies/(?P<id>\d+)', array(
+            'methods'             => 'DELETE',
+            'callback'            => array( __CLASS__, 'admin_delete_agency' ),
             'permission_callback' => array( 'CTP_Auth', 'is_authenticated' ),
         ) );
     }
@@ -283,6 +315,56 @@ class CTP_Rest_API {
     // RENTAL ENDPOINTS
     // =====================
 
+    /**
+     * Detect agency from contract number prefix
+     */
+    private static function detect_agency_from_contract( $contract_number ) {
+        global $wpdb;
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+        $upper = strtoupper( $contract_number );
+
+        // Get all active agencies and check prefix
+        $agencies = $wpdb->get_results( "SELECT * FROM $table_agencies WHERE is_active = 1" );
+        foreach ( $agencies as $agency ) {
+            $prefix = strtoupper( $agency->contract_prefix );
+            if ( strpos( $upper, $prefix . '-' ) === 0 || strpos( $upper, $prefix ) === 0 ) {
+                return $agency;
+            }
+        }
+
+        // Backward compat: TEST prefix still accepted
+        if ( strpos( $upper, 'TEST' ) === 0 ) {
+            return (object) array(
+                'name'            => 'Demo',
+                'slug'            => 'demo',
+                'contract_prefix' => 'TEST',
+                'primary_color'   => '#4f46e5',
+                'secondary_color' => '#ffffff',
+                'accent_color'    => '#4f46e5',
+                'logo_url'        => null,
+                'logo_icon_url'   => null,
+            );
+        }
+
+        return null;
+    }
+
+    /**
+     * Format agency data for API response
+     */
+    private static function format_agency_branding( $agency ) {
+        if ( ! $agency ) return null;
+        return array(
+            'name'           => $agency->name,
+            'slug'           => $agency->slug,
+            'primaryColor'   => $agency->primary_color,
+            'secondaryColor' => $agency->secondary_color,
+            'accentColor'    => $agency->accent_color,
+            'logoUrl'        => $agency->logo_url,
+            'logoIconUrl'    => $agency->logo_icon_url,
+        );
+    }
+
     public static function validate_rental( $request ) {
         global $wpdb;
         $auth_user = CTP_Auth::get_user_from_request( $request );
@@ -295,13 +377,27 @@ class CTP_Rest_API {
         $contract_number = sanitize_text_field( $params['contractNumber'] ?? '' );
         $agency_name     = sanitize_text_field( $params['agencyName'] ?? '' );
 
-        if ( ! $contract_number || ! $agency_name ) {
-            return new WP_Error( 'missing_fields', 'Contract number and agency name are required.', array( 'status' => 400 ) );
+        if ( ! $contract_number ) {
+            return new WP_Error( 'missing_fields', 'Contract number is required.', array( 'status' => 400 ) );
         }
 
-        // Mock rental API validation - accepts contracts starting with "TEST"
-        if ( strpos( strtoupper( $contract_number ), 'TEST' ) !== 0 ) {
-            return new WP_Error( 'invalid_contract', 'Contract not found. For demo, use a contract number starting with "TEST".', array( 'status' => 400 ) );
+        // Detect agency from contract prefix (HZ=Hertz, SX=Sixt, TEST=demo)
+        $agency = self::detect_agency_from_contract( $contract_number );
+
+        if ( ! $agency ) {
+            $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+            $active = $wpdb->get_results( "SELECT contract_prefix, name FROM $table_agencies WHERE is_active = 1" );
+            $prefixes = array_map( function( $a ) { return $a->contract_prefix . ' (' . $a->name . ')'; }, $active );
+            return new WP_Error(
+                'invalid_contract',
+                'Contract number not recognized. Valid prefixes: ' . implode( ', ', $prefixes ) . '. Example: HZ-12345 for Hertz or SX-12345 for Sixt.',
+                array( 'status' => 400 )
+            );
+        }
+
+        // Use detected agency name if not provided
+        if ( ! $agency_name ) {
+            $agency_name = $agency->name;
         }
 
         $table_customers = $wpdb->prefix . 'ctp_customer_profiles';
@@ -314,7 +410,6 @@ class CTP_Rest_API {
         ) );
 
         if ( ! $customer ) {
-            // Create customer profile if missing
             $wpdb->insert( $table_customers, array( 'user_id' => $auth_user['userId'] ) );
             $customer_id = $wpdb->insert_id;
         } else {
@@ -334,26 +429,34 @@ class CTP_Rest_API {
         $start_date = current_time( 'mysql' );
         $end_date   = date( 'Y-m-d H:i:s', strtotime( '+7 days' ) );
 
+        // Determine vehicle class based on contract
+        $vehicle_classes = array( 'COMPACT', 'STANDARD', 'SUV', 'PREMIUM', 'CONVERTIBLE' );
+        $hash = crc32( $contract_number );
+        $vehicle_class = $vehicle_classes[ abs( $hash ) % count( $vehicle_classes ) ];
+
         $wpdb->insert( $table_contracts, array(
             'customer_id'     => $customer_id,
             'contract_number' => $contract_number,
             'agency_name'     => $agency_name,
+            'agency_slug'     => $agency->slug,
             'start_date'      => $start_date,
             'end_date'        => $end_date,
-            'vehicle_class'   => 'STANDARD',
+            'vehicle_class'   => $vehicle_class,
             'is_valid'        => 1,
         ) );
 
         return rest_ensure_response( array(
-            'message'  => 'Contract validated successfully!',
+            'message'  => 'Contract validated successfully with ' . $agency_name . '!',
             'contract' => array(
                 'contractNumber' => $contract_number,
                 'agencyName'     => $agency_name,
+                'agencySlug'     => $agency->slug,
                 'startDate'      => $start_date,
                 'endDate'        => $end_date,
-                'vehicleClass'   => 'STANDARD',
+                'vehicleClass'   => $vehicle_class,
                 'isValid'        => true,
             ),
+            'agency' => self::format_agency_branding( $agency ),
         ) );
     }
 
@@ -370,7 +473,7 @@ class CTP_Rest_API {
         ) );
 
         if ( ! $customer ) {
-            return rest_ensure_response( array( 'contract' => null ) );
+            return rest_ensure_response( array( 'contract' => null, 'agency' => null ) );
         }
 
         $contract = $wpdb->get_row( $wpdb->prepare(
@@ -379,25 +482,69 @@ class CTP_Rest_API {
         ) );
 
         if ( ! $contract ) {
-            return rest_ensure_response( array( 'contract' => null ) );
+            return rest_ensure_response( array( 'contract' => null, 'agency' => null ) );
         }
 
         // Check if expired
         if ( strtotime( $contract->end_date ) < time() ) {
             $wpdb->update( $table_contracts, array( 'is_valid' => 0 ), array( 'id' => $contract->id ) );
-            return rest_ensure_response( array( 'contract' => null ) );
+            return rest_ensure_response( array( 'contract' => null, 'agency' => null ) );
+        }
+
+        // Load agency branding
+        $agency = null;
+        if ( $contract->agency_slug ) {
+            $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+            $agency = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM $table_agencies WHERE slug = %s",
+                $contract->agency_slug
+            ) );
+        }
+        // Fallback: detect from contract number
+        if ( ! $agency ) {
+            $agency = self::detect_agency_from_contract( $contract->contract_number );
         }
 
         return rest_ensure_response( array(
             'contract' => array(
                 'contractNumber' => $contract->contract_number,
                 'agencyName'     => $contract->agency_name,
+                'agencySlug'     => $contract->agency_slug ?? ($agency ? $agency->slug : null),
                 'startDate'      => $contract->start_date,
                 'endDate'        => $contract->end_date,
                 'vehicleClass'   => $contract->vehicle_class,
                 'isValid'        => (bool) $contract->is_valid,
             ),
+            'agency' => self::format_agency_branding( $agency ),
         ) );
+    }
+
+    /**
+     * Get all active rental agencies (public endpoint)
+     */
+    public static function list_agencies( $request ) {
+        global $wpdb;
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+        $agencies = $wpdb->get_results( "SELECT * FROM $table_agencies WHERE is_active = 1 ORDER BY name ASC" );
+
+        $result = array();
+        foreach ( $agencies as $a ) {
+            $result[] = array(
+                'id'              => (int) $a->id,
+                'name'            => $a->name,
+                'slug'            => $a->slug,
+                'contractPrefix'  => $a->contract_prefix,
+                'primaryColor'    => $a->primary_color,
+                'secondaryColor'  => $a->secondary_color,
+                'accentColor'     => $a->accent_color,
+                'logoUrl'         => $a->logo_url,
+                'logoIconUrl'     => $a->logo_icon_url,
+                'isDemo'          => (bool) $a->is_demo,
+                'demoContract'    => $a->demo_contract,
+            );
+        }
+
+        return rest_ensure_response( $result );
     }
 
     // =====================
@@ -1087,6 +1234,130 @@ class CTP_Rest_API {
             'minimumDiscountRate' => floatval( CTP_Database::get_setting( 'minimum_discount_rate', 5 ) ),
             'maximumDiscountRate' => floatval( CTP_Database::get_setting( 'maximum_discount_rate', 25 ) ),
         ) );
+    }
+
+    // =====================
+    // ADMIN AGENCY ENDPOINTS
+    // =====================
+
+    public static function admin_list_agencies( $request ) {
+        global $wpdb;
+        $auth_user = CTP_Auth::get_user_from_request( $request );
+        if ( $auth_user['role'] !== 'ADMIN' ) {
+            return new WP_Error( 'forbidden', 'Admin access required.', array( 'status' => 403 ) );
+        }
+
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+        $agencies = $wpdb->get_results( "SELECT * FROM $table_agencies ORDER BY name ASC" );
+
+        $result = array();
+        foreach ( $agencies as $a ) {
+            $result[] = self::format_agency_full( $a );
+        }
+        return rest_ensure_response( $result );
+    }
+
+    public static function admin_create_agency( $request ) {
+        global $wpdb;
+        $auth_user = CTP_Auth::get_user_from_request( $request );
+        if ( $auth_user['role'] !== 'ADMIN' ) {
+            return new WP_Error( 'forbidden', 'Admin access required.', array( 'status' => 403 ) );
+        }
+
+        $params = $request->get_json_params();
+        $name   = sanitize_text_field( $params['name'] ?? '' );
+        $prefix = strtoupper( sanitize_text_field( $params['contractPrefix'] ?? '' ) );
+        $slug   = sanitize_title( $name );
+
+        if ( ! $name || ! $prefix ) {
+            return new WP_Error( 'missing_fields', 'Name and contract prefix are required.', array( 'status' => 400 ) );
+        }
+
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+        $wpdb->insert( $table_agencies, array(
+            'name'             => $name,
+            'slug'             => $slug,
+            'contract_prefix'  => $prefix,
+            'primary_color'    => sanitize_hex_color( $params['primaryColor'] ?? '#000000' ) ?: '#000000',
+            'secondary_color'  => sanitize_hex_color( $params['secondaryColor'] ?? '#ffffff' ) ?: '#ffffff',
+            'accent_color'     => sanitize_hex_color( $params['accentColor'] ?? '#000000' ) ?: '#000000',
+            'logo_url'         => esc_url_raw( $params['logoUrl'] ?? '' ),
+            'logo_icon_url'    => esc_url_raw( $params['logoIconUrl'] ?? '' ),
+            'api_endpoint'     => esc_url_raw( $params['apiEndpoint'] ?? '' ),
+            'api_key'          => sanitize_text_field( $params['apiKey'] ?? '' ),
+            'is_active'        => (int) ( $params['isActive'] ?? 1 ),
+            'is_demo'          => (int) ( $params['isDemo'] ?? 0 ),
+            'demo_contract'    => sanitize_text_field( $params['demoContract'] ?? '' ),
+        ) );
+
+        $new_id = $wpdb->insert_id;
+        $agency = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table_agencies WHERE id = %d", $new_id ) );
+        return rest_ensure_response( self::format_agency_full( $agency ) );
+    }
+
+    public static function admin_update_agency( $request ) {
+        global $wpdb;
+        $auth_user = CTP_Auth::get_user_from_request( $request );
+        if ( $auth_user['role'] !== 'ADMIN' ) {
+            return new WP_Error( 'forbidden', 'Admin access required.', array( 'status' => 403 ) );
+        }
+
+        $agency_id = (int) $request['id'];
+        $params = $request->get_json_params();
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+
+        $update_data = array();
+        if ( isset( $params['name'] ) )           $update_data['name']            = sanitize_text_field( $params['name'] );
+        if ( isset( $params['contractPrefix'] ) )  $update_data['contract_prefix'] = strtoupper( sanitize_text_field( $params['contractPrefix'] ) );
+        if ( isset( $params['primaryColor'] ) )    $update_data['primary_color']   = sanitize_hex_color( $params['primaryColor'] ) ?: '#000000';
+        if ( isset( $params['secondaryColor'] ) )  $update_data['secondary_color'] = sanitize_hex_color( $params['secondaryColor'] ) ?: '#ffffff';
+        if ( isset( $params['accentColor'] ) )     $update_data['accent_color']    = sanitize_hex_color( $params['accentColor'] ) ?: '#000000';
+        if ( isset( $params['logoUrl'] ) )         $update_data['logo_url']        = esc_url_raw( $params['logoUrl'] );
+        if ( isset( $params['logoIconUrl'] ) )     $update_data['logo_icon_url']   = esc_url_raw( $params['logoIconUrl'] );
+        if ( isset( $params['apiEndpoint'] ) )     $update_data['api_endpoint']    = esc_url_raw( $params['apiEndpoint'] );
+        if ( isset( $params['apiKey'] ) )          $update_data['api_key']         = sanitize_text_field( $params['apiKey'] );
+        if ( isset( $params['isActive'] ) )        $update_data['is_active']       = (int) $params['isActive'];
+        if ( isset( $params['isDemo'] ) )          $update_data['is_demo']         = (int) $params['isDemo'];
+        if ( isset( $params['demoContract'] ) )    $update_data['demo_contract']   = sanitize_text_field( $params['demoContract'] );
+
+        if ( ! empty( $update_data ) ) {
+            $wpdb->update( $table_agencies, $update_data, array( 'id' => $agency_id ) );
+        }
+
+        $agency = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM $table_agencies WHERE id = %d", $agency_id ) );
+        return rest_ensure_response( self::format_agency_full( $agency ) );
+    }
+
+    public static function admin_delete_agency( $request ) {
+        global $wpdb;
+        $auth_user = CTP_Auth::get_user_from_request( $request );
+        if ( $auth_user['role'] !== 'ADMIN' ) {
+            return new WP_Error( 'forbidden', 'Admin access required.', array( 'status' => 403 ) );
+        }
+
+        $agency_id = (int) $request['id'];
+        $table_agencies = $wpdb->prefix . 'ctp_rental_agencies';
+        $wpdb->delete( $table_agencies, array( 'id' => $agency_id ) );
+        return rest_ensure_response( array( 'success' => true ) );
+    }
+
+    private static function format_agency_full( $a ) {
+        return array(
+            'id'              => (int) $a->id,
+            'name'            => $a->name,
+            'slug'            => $a->slug,
+            'contractPrefix'  => $a->contract_prefix,
+            'primaryColor'    => $a->primary_color,
+            'secondaryColor'  => $a->secondary_color,
+            'accentColor'     => $a->accent_color,
+            'logoUrl'         => $a->logo_url,
+            'logoIconUrl'     => $a->logo_icon_url,
+            'apiEndpoint'     => $a->api_endpoint,
+            'apiKey'          => $a->api_key ? '••••••••' : '',
+            'isActive'        => (bool) $a->is_active,
+            'isDemo'          => (bool) $a->is_demo,
+            'demoContract'    => $a->demo_contract,
+        );
     }
 
     // =====================
